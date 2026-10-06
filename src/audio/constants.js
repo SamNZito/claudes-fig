@@ -1,0 +1,10 @@
+'use strict';
+// Discord voice is 48 kHz, stereo, 20 ms Opus frames.
+const SAMPLE_RATE = 48000;
+const CHANNELS = 2;
+const FRAME_SAMPLES = 960; // 20 ms at 48 kHz
+const BYTES_PER_SAMPLE = 2; // s16le
+const FRAME_BYTES = FRAME_SAMPLES * CHANNELS * BYTES_PER_SAMPLE; // 3840
+const BYTES_PER_MS = (SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE) / 1000; // 192
+
+module.exports = { SAMPLE_RATE, CHANNELS, FRAME_SAMPLES, BYTES_PER_SAMPLE, FRAME_BYTES, BYTES_PER_MS };

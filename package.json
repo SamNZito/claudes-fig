@@ -1,0 +1,28 @@
+{
+  "name": "fig",
+  "version": "1.0.0",
+  "description": "Fig: a friend in your Discord voice channel. Plays music, DJs, talks back. Brain is Grok (xAI).",
+  "main": "src/index.js",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node scripts/supervise.js",
+    "start:once": "node src/index.js",
+    "doctor": "node scripts/doctor.js",
+    "test": "node --test --test-concurrency=1 --test-force-exit \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@discordjs/opus": "^0.10.0",
+    "@discordjs/voice": "0.19.2",
+    "@snazzah/davey": "^0.1.12",
+    "discord.js": "^14.27.0",
+    "dotenv": "^16.4.7",
+    "opusscript": "^0.1.1"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.2.0"
+  }
+}
