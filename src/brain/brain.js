@@ -1,13 +1,10 @@
 'use strict';
 // Decides whether something said in the call is for Fig, and if so, what to do about it.
 //
-// Chattiness modes:
-//   conversation - no wake name needed; anything could be for Fig (Grok may stay quiet)
-//   quiet        - only when named (or a quick follow-up from the person Fig just answered)
-//   normal       - named, follow-up, or a clear music ask ("skip this", "play ...")
-//   active       - as normal, plus Fig sometimes chimes in when relevant
-//   chaos        - Fig acts like another person in the call
-// Outside conversation mode Fig only ever answers the person who addressed it.
+// Two modes:
+//   normal       - Fig only responds when its wake name is said (the default, and what every new call starts in)
+//   conversation - no wake name needed; anything said could be for Fig (Grok may stay quiet)
+// The one exception in normal mode: a spoken "yes" to a question Fig just asked that person (ban confirmation).
 const grok = require('./grok');
 const { detectWake, norm } = require('./wake');
 const { TOOLS, CHIME_TOOLS, runTool } = require('./tools');
@@ -58,7 +55,6 @@ const DONE_LISTENING = new Set([
   'leave_call',
   'moderate',
 ]);
-const CLEAR_ASK = /^(skip( (this|it|the) ?(song|track|one)?)?|pause the music|resume the music|turn (the music|it) (up|down)|(can you |could you |please )?(play|queue|put on) .+|stop the music|next song|dj .+)$/;
 
 class Brain {
   constructor(session) {
@@ -107,7 +103,6 @@ class Brain {
     const st = this.settings();
     const mode = st.mode;
     const { named, text: stripped } = detectWake(text, st.wakeName);
-    const focused = s.isFocused(member.id);
 
     // Pending "yes" confirmation (voice bans).
     const pc = s.pendingConfirm;
@@ -124,29 +119,13 @@ class Brain {
       }
     }
 
-    let addressed = named || focused || mode === 'conversation';
+    // normal: only when the wake name is said. conversation: no name needed.
+    const addressed = named || mode === 'conversation';
+    if (!addressed) return;
     const cmdText = named ? stripped : norm(text);
-    let clearAsk = false;
-    if (!addressed && mode !== 'quiet' && CLEAR_ASK.test(cmdText)) addressed = clearAsk = true;
-
-    if (addressed) {
-      // While Fig is talking, "stop"/"shut up" from the person it's talking to cuts it off.
-      const fast = fastCommand(cmdText);
-      if (fast) return this.runFast(member, fast, cmdText, text, { source });
-      return this.think(member, text, { named, focused, mode, source, clearAsk });
-    }
-
-    // Not addressed: maybe chime in.
-    if (mode === 'active' || mode === 'chaos') {
-      const words = text.split(/\s+/).length;
-      const now = Date.now();
-      const evalGap = mode === 'chaos' ? 6000 : 20000;
-      const chimeGap = mode === 'chaos' ? 15000 : 60000;
-      if (words >= (mode === 'chaos' ? 3 : 5) && now - this.lastChimeEval > evalGap && now - this.lastChime > chimeGap && !s.mixer.voiceActive) {
-        this.lastChimeEval = now;
-        return this.think(member, text, { named: false, focused: false, mode, chime: true, source });
-      }
-    }
+    const fast = fastCommand(cmdText);
+    if (fast) return this.runFast(member, fast, cmdText, text, { source });
+    return this.think(member, text, { named, mode, source });
   }
 
   async runFast(member, cmd, cmdText, original, { source }) {
@@ -198,7 +177,7 @@ class Brain {
     if (r.say && cmd !== 'shutup') await this.deliver(member, original, r.say, { source, focus: false });
   }
 
-  buildSystem(member, { mode, chime, named, focused, clearAsk }) {
+  buildSystem(member, { mode, named }) {
     const s = this.session;
     const st = this.settings();
     const np = s.player.nowPlaying();
@@ -218,17 +197,7 @@ class Brain {
       'Your personality changes how you talk, never whether you do the job. You may use speech tags like [laugh], [sigh], [pause], <whisper>...</whisper> sparingly.',
       'For current events, scores, prices or anything you are unsure of, use web_lookup instead of guessing.',
     ];
-    if (chime) {
-      rules.push(
-        mode === 'chaos'
-          ? 'Nobody addressed you. You are another friend in this call: jump in with a quick reaction, joke or opinion if you have a good one; otherwise call stay_quiet.'
-          : 'Nobody addressed you. Only chime in if you have something genuinely relevant and useful to add (a quick fact, a fitting song idea). Usually call stay_quiet.',
-      );
-    } else if (clearAsk) {
-      rules.push(`${member.displayName} did not say your name, but this sounded like a music request for you. If it clearly isn't (they're just chatting), call stay_quiet.`);
-    } else if (!named && focused) {
-      rules.push(`${member.displayName} talked to you a moment ago and did not say your name this time. If this is clearly not for you (they're talking to someone else), call stay_quiet.`);
-    } else if (!named && mode === 'conversation') {
+    if (!named && mode === 'conversation') {
       rules.push("Conversation mode: people don't need to say your name. If this is clearly people talking to each other and not to you, call stay_quiet.");
     }
     const state = [
@@ -242,9 +211,9 @@ class Brain {
   }
 
   /** Full model round: decide, call tools, reply. */
-  async think(member, text, { named = false, focused = false, mode = this.settings().mode, chime = false, clearAsk = false, source = 'voice', reply = null } = {}) {
+  async think(member, text, { named = false, mode = this.settings().mode, chime = false, source = 'voice', reply = null } = {}) {
     const s = this.session;
-    const system = this.buildSystem(member, { mode, chime, named, focused, clearAsk });
+    const system = this.buildSystem(member, { mode, named });
     const messages = [{ role: 'system', content: system }, ...s.memory.exchanges.slice(-8), { role: 'user', content: `${member.displayName}: ${text}` }];
     if (!chime && source === 'voice') s.mixer.holdDuck(1500);
     let result;
@@ -316,7 +285,7 @@ class Brain {
     await this.deliver(member, text, final, { source, reply, verbatim: Boolean(verbatim), chime, focus: !doneListening });
   }
 
-  /** Speak + post a reply to one person, remember it, keep focus on them for follow-ups. */
+  /** Speak + post a reply to one person and remember it. */
   async deliver(member, heard, line, { source = 'voice', reply = null, verbatim = false, focus = true, chime = false } = {}) {
     const s = this.session;
     if (!line) return;
@@ -348,4 +317,4 @@ function fastCommand(t) {
   return null;
 }
 
-module.exports = { Brain, fastCommand, CLEAR_ASK, JUNK };
+module.exports = { Brain, fastCommand, JUNK };

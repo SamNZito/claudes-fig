@@ -33,9 +33,10 @@ test('fast commands parse', () => {
   assert.strictEqual(fastCommand('play some jazz'), null);
 });
 
-test('quiet mode ignores unnamed chatter, answers when named', async () => {
-  const { s, alice } = setup('quiet');
+test('normal mode: nothing happens without the wake name, even a music request', async () => {
+  const { s, alice } = setup('normal');
   await s.brain.route(alice, 'play some daft punk');
+  await s.brain.route(alice, 'skip this song');
   assert.strictEqual(script.calls.length, 0);
   script.chat.push({ content: 'On it.', toolCalls: [] });
   await s.brain.route(alice, 'Hey Fig, what is up?');
@@ -43,29 +44,15 @@ test('quiet mode ignores unnamed chatter, answers when named', async () => {
   s.destroy();
 });
 
-test('normal mode: clear music ask without the name gets handled, random talk does not', async () => {
-  const { s, bob } = setup('normal');
-  await s.brain.route(bob, 'I think that movie was great honestly');
-  assert.strictEqual(script.calls.length, 0);
-  script.chat.push({ content: '', toolCalls: [] });
-  await s.brain.route(bob, 'play some daft punk');
-  assert.strictEqual(script.calls.length, 1);
-  assert.match(script.calls[0].messages[0].content, /sounded like a music request/);
-  s.destroy();
-});
-
-test('only the person who addressed Fig gets follow-ups without the name', async () => {
-  const { s, alice, bob, said } = setup('normal');
+test('normal mode: no follow-ups without the name, even right after Fig answered', async () => {
+  const { s, alice, said } = setup('normal');
   script.chat.push({ content: 'Doing great.', toolCalls: [] });
   await s.brain.route(alice, 'fig how are you');
   assert.strictEqual(said.length, 1);
   assert.strictEqual(said[0].to, 'Alice');
-  s.setFocus('alice'); // respond() is stubbed, so set focus as the real one would
-  script.chat.push({ content: 'Sure.', toolCalls: [] });
+  s.setFocus('alice');
   await s.brain.route(alice, 'and what about you');
-  assert.strictEqual(script.calls.length, 2, 'Alice follow-up handled');
-  await s.brain.route(bob, 'and what about you');
-  assert.strictEqual(script.calls.length, 2, 'Bob is ignored');
+  assert.strictEqual(script.calls.length, 1, 'follow-up without the name is ignored');
   s.destroy();
 });
 
@@ -77,26 +64,39 @@ test('conversation mode needs no name', async () => {
   s.destroy();
 });
 
-test('chaos mode may chime in on unaddressed talk with only stay_quiet available', async () => {
-  const { s, bob, said } = setup('chaos');
-  script.chat.push({ content: '', toolCalls: [toolCall('stay_quiet')] });
-  await s.brain.route(bob, 'I cannot believe the ending of that show last night');
-  assert.strictEqual(script.calls.length, 1);
-  assert.deepStrictEqual(
-    script.calls[0].tools.map((t) => t.function.name),
-    ['stay_quiet'],
-  );
-  assert.strictEqual(said.length, 0);
+test('conversation mode: fast commands work without the name', async () => {
+  const { s, bob } = setup('conversation');
+  s.player.enqueue([{ key: 'soundcloud:tone-cv', id: 'tone-cv', url: 'https://soundcloud.com/fake/tone-cv', title: 'CV', duration: 6, via: 'user' }]);
+  assert.ok(await waitFor(() => s.player.current?.source?.pcm.hasData));
+  await s.brain.route(bob, 'pause');
+  assert.strictEqual(s.player.paused, true);
+  assert.strictEqual(script.calls.length, 0);
   s.destroy();
+});
+
+test('every new call starts in normal mode', () => {
+  const { s, gid } = setup('conversation');
+  assert.strictEqual(store.settings(gid).mode, 'conversation');
+  s.startNewCall();
+  assert.strictEqual(store.settings(gid).mode, 'normal');
+  s.destroy();
+});
+
+test('only two modes exist; old saved modes become normal', () => {
+  const { MODES } = require('../src/config');
+  assert.deepStrictEqual([...MODES].sort(), ['conversation', 'normal']);
+  const gid = `old-${Math.random()}`;
+  store.updateSettings(gid, { mode: 'chaos' });
+  assert.strictEqual(store.settings(gid).mode, 'normal');
 });
 
 test('fast skip happens without a model call and the song is gone', async () => {
   const { s, alice } = setup('normal');
   s.player.enqueue([
-    { key: 'youtube:tone-a', id: 'tone-a', url: 'https://www.youtube.com/watch?v=tone-a', title: 'A', duration: 6, uid: 1, via: 'user' },
-    { key: 'youtube:noise-b', id: 'noise-b', url: 'https://www.youtube.com/watch?v=noise-b', title: 'B', duration: 6, uid: 2, via: 'user' },
+    { key: 'soundcloud:tone-a', id: 'tone-a', url: 'https://soundcloud.com/fake/tone-a', title: 'A', duration: 6, uid: 1, via: 'user' },
+    { key: 'soundcloud:noise-b', id: 'noise-b', url: 'https://soundcloud.com/fake/noise-b', title: 'B', duration: 6, uid: 2, via: 'user' },
   ]);
-  assert.ok(await waitFor(() => s.player.current && s.player.current.source.pcm.hasData));
+  assert.ok(await waitFor(() => s.player.current?.source?.pcm.hasData));
   await s.brain.route(alice, 'Fig, skip.');
   assert.strictEqual(script.calls.length, 0);
   assert.strictEqual(s.player.current.entry.id, 'noise-b');
@@ -105,7 +105,7 @@ test('fast skip happens without a model call and the song is gone', async () => 
 
 test('"stop" while Fig is talking stops the talking, not the music', async () => {
   const { s, alice } = setup('normal');
-  s.player.enqueue([{ key: 'youtube:tone-c', id: 'tone-c', url: 'https://www.youtube.com/watch?v=tone-c', title: 'C', duration: 6, uid: 3, via: 'user' }]);
+  s.player.enqueue([{ key: 'soundcloud:tone-c', id: 'tone-c', url: 'https://soundcloud.com/fake/tone-c', title: 'C', duration: 6, uid: 3, via: 'user' }]);
   assert.ok(await waitFor(() => s.player.current));
   const clip = new PcmSource();
   clip.push(Buffer.alloc(3840 * 100));
@@ -142,7 +142,7 @@ test('play when idle: music is the confirmation, nothing claimed', async () => {
 test('role limits: without the control role you cannot skip', async () => {
   const { s, bob, gid, said } = setup('normal');
   store.updateSettings(gid, { access: { control: ['djrole'] } });
-  s.player.enqueue([{ key: 'youtube:tone-d', id: 'tone-d', url: 'https://www.youtube.com/watch?v=tone-d', title: 'D', duration: 6, uid: 4, via: 'user' }]);
+  s.player.enqueue([{ key: 'soundcloud:tone-d', id: 'tone-d', url: 'https://soundcloud.com/fake/tone-d', title: 'D', duration: 6, uid: 4, via: 'user' }]);
   assert.ok(await waitFor(() => s.player.current));
   await s.brain.route(bob, 'fig skip');
   assert.strictEqual(s.player.current.entry.id, 'tone-d');

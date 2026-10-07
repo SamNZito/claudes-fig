@@ -4,7 +4,7 @@ const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, InteractionContex
 const { MODES } = require('../config');
 const { PRESETS } = require('../brain/personalities');
 
-const modeChoices = MODES.map((m) => ({ name: m, value: m }));
+const modeChoices = MODES.map((m) => ({ name: m === 'normal' ? 'normal (say my name first)' : 'conversation (no name needed)', value: m }));
 const presetChoices = Object.entries(PRESETS).map(([k, v]) => ({ name: v.label, value: k }));
 const capChoices = [
   { name: 'ask (talk to Fig, request songs)', value: 'ask' },
@@ -62,7 +62,7 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName('mode')
-    .setDescription('How chatty Fig is')
+    .setDescription('normal = say my name first; conversation = no name needed')
     .addStringOption((o) => o.setName('mode').setDescription('Mode').setRequired(true).addChoices(...modeChoices)),
   new SlashCommandBuilder()
     .setName('name')

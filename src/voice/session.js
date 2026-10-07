@@ -25,6 +25,7 @@ const store = require('../store');
 const { config } = require('../config');
 const log = require('../log').logger('session');
 const crash = require('../crashlog');
+const sources = require('../music/sources');
 
 const REJOIN_DELAYS = [2000, 5000, 10000, 20000, 30000, 60000];
 
@@ -91,7 +92,9 @@ class GuildSession extends EventEmitter {
 
     this.player.on('nowPlaying', (e) => this.onNowPlaying(e));
     this.player.on('trackFailed', (e, reason) => this.onTrackFailed(e, reason));
-    this.player.on('trackCut', (e, reason) => this.postText(`**${e.title}** got cut off (${reason}). Moving on.`));
+    this.player.on('trackCut', (e, reason) => this.postText(`**${e.asked || e.title}** got cut off (${reason}). Moving on.`));
+    this.onSourceDownBound = (src, reason) => this.onSourceDown(src, reason);
+    sources.events.on('down', this.onSourceDownBound);
     this.dj.on('stuck', (mood) => {
       this.postText(`DJ couldn't find anything new that fits **${mood}**. Try another mood with /dj.`);
       this.speak(`I'm out of fresh ideas for ${mood}. Give me another mood?`);
@@ -133,7 +136,9 @@ class GuildSession extends EventEmitter {
     return this.connection?.state?.status === VoiceConnectionStatus.Ready;
   }
 
-  async join(channel) {
+  async join(channel, { rejoin = false } = {}) {
+    // Every new call starts in normal mode (wake name required). A reconnect after a blip keeps the mode.
+    if (!rejoin && !this.connection) this.startNewCall();
     this.wantConnected = true;
     this.suppressAutoJoinChannel = null;
     clearTimeout(this.rejoinTimer);
@@ -155,12 +160,21 @@ class GuildSession extends EventEmitter {
       this.rejoinAttempt = 0;
       log.info(`connected to #${channel.name} in ${this.guild.name}`);
       crash.note(`connected to #${channel.name} in ${this.guild.name}`);
+      this.restoreDj();
     } catch (e) {
       log.warn(`could not connect to ${channel.name}: ${e.message}`);
       crash.note(`could not connect to #${channel.name}: ${e.message}`);
       this.selfDisconnectAt = Date.now();
       if (conn.state.status !== VoiceConnectionStatus.Destroyed) conn.destroy();
       throw new Error('voice connection timed out');
+    }
+  }
+
+  /** A fresh call (not a reconnect): start in normal mode, wake name required. */
+  startNewCall() {
+    if (config.resetModeOnJoin && store.settings(this.guild.id).mode !== 'normal') {
+      store.updateSettings(this.guild.id, { mode: 'normal' });
+      log.info('new call: mode reset to normal');
     }
   }
 
@@ -176,7 +190,6 @@ class GuildSession extends EventEmitter {
       if (this.connection !== conn) return;
       if (newS.status === VoiceConnectionStatus.Ready) {
         this.rejoinAttempt = 0;
-        this.kickStrikes = 0;
         this.startListening(conn);
       } else if (newS.status === VoiceConnectionStatus.Disconnected) {
         // Either a quick blip (Discord moves us to a new voice server) or a real drop.
@@ -209,30 +222,34 @@ class GuildSession extends EventEmitter {
 
   scheduleRejoin() {
     clearTimeout(this.rejoinTimer);
-    const delay = REJOIN_DELAYS[Math.min(this.rejoinAttempt, REJOIN_DELAYS.length - 1)];
+    // Fast retries first, then every 5 minutes forever: a network outage must not leave Fig out for good.
+    const delay = this.rejoinAttempt < REJOIN_DELAYS.length ? REJOIN_DELAYS[this.rejoinAttempt] : 5 * 60 * 1000;
     this.rejoinAttempt++;
-    if (this.rejoinAttempt > 10) {
-      log.warn('giving up on rejoining voice');
-      crash.note('gave up rejoining voice after 10 tries');
-      this.postText("I lost the voice connection and couldn't get back in. Use /join to bring me back.");
-      this.wantConnected = false;
-      return;
+    if (this.rejoinAttempt === REJOIN_DELAYS.length + 1) {
+      crash.note('voice rejoin still failing; retrying every 5 minutes');
+      this.postText("I lost the voice connection. I'll keep trying to get back in (or use /join).");
     }
     log.info(`rejoining voice in ${delay / 1000}s (attempt ${this.rejoinAttempt})`);
     this.rejoinTimer = setTimeout(async () => {
       if (!this.wantConnected) return;
-      const ch = this.voiceChannel();
-      if (!ch || !this.humansIn(ch).length) {
+      const ch = this.voiceChannel() || this.homeChannel();
+      if (!ch) {
+        log.info('voice channel is gone; not rejoining');
+        this.wantConnected = false;
+        return;
+      }
+      if (!this.humansIn(ch).length && !(this.isHome(ch) && config.stayInHome)) {
         log.info('nobody left in the channel; not rejoining');
         this.wantConnected = false;
         return;
       }
       try {
-        await this.join(ch);
+        await this.join(ch, { rejoin: true });
       } catch {
         this.scheduleRejoin();
       }
     }, delay);
+    this.rejoinTimer.unref?.();
   }
 
   async leave({ byRequest = false, reason = '' } = {}) {
@@ -252,23 +269,45 @@ class GuildSession extends EventEmitter {
     this.leaving = false;
   }
 
-  /** Voice state went empty. A real kick happens more than once; one clear is usually a blip. */
+  /**
+   * Fig's voice state went empty and we didn't do it. One clear is usually a blip (or the old bot
+   * on the same token), so rejoin. Three within 10 minutes means a person keeps disconnecting Fig:
+   * stay out until /join. Strikes are NOT reset by a successful rejoin; they age out instead
+   * (resetting on rejoin meant the count could never reach three).
+   */
   onForcedDisconnect() {
     if (this.leaving || !this.wantConnected) return;
     if (Date.now() - (this.selfDisconnectAt || 0) < 15000) return; // that was us
-    this.kickStrikes = (this.kickStrikes || 0) + 1;
-    crash.note(`left the voice channel unexpectedly (strike ${this.kickStrikes})`);
-    if (this.kickStrikes >= 3) {
-      log.info('disconnected repeatedly; staying out');
-      crash.note('left voice three times in a row; staying out until /join');
+    const now = Date.now();
+    this.kickTimes = (this.kickTimes || []).filter((t) => now - t < 10 * 60 * 1000);
+    this.kickTimes.push(now);
+    const strikes = this.kickTimes.length;
+    crash.note(`left the voice channel unexpectedly (strike ${strikes} in 10 min)`);
+    if (strikes >= 3) {
+      log.info('disconnected 3 times in 10 minutes; staying out');
+      crash.note('disconnected 3 times in 10 minutes; staying out until /join');
+      this.kickTimes = [];
       this.suppressAutoJoinChannel = this.voiceChannelId;
       this.leave({ reason: 'disconnected by someone' });
-      this.postText('Someone disconnected me. Use /join when you want me back.');
+      this.postText('Someone keeps disconnecting me, so I am staying out. Use /join when you want me back.');
       return;
     }
-    log.info('voice channel cleared; rejoining');
+    log.info(`voice channel cleared (strike ${strikes}/3); rejoining`);
     this.selfDisconnectAt = Date.now();
     this.scheduleRejoin();
+  }
+
+  /** Is this Fig's home channel (HOME_VOICE_CHANNEL, id or name)? */
+  isHome(channel) {
+    const h = String(config.homeVoiceChannel || '').trim().replace(/^#/, '').toLowerCase();
+    if (!h || !channel) return false;
+    return channel.id === h || String(channel.name || '').toLowerCase() === h;
+  }
+
+  homeChannel() {
+    const h = String(config.homeVoiceChannel || '').trim();
+    if (!h) return null;
+    return [...this.guild.channels.cache.values()].find((c) => (c.type === 2 || c.type === 13) && this.isHome(c)) || null;
   }
 
   /** Discord moved us to another channel. */
@@ -397,40 +436,50 @@ class GuildSession extends EventEmitter {
   }
 
   onNowPlaying(entry) {
-    this.ytBlocks = 0;
+    if (entry.via === 'dj') this.dj.onPickResult(true);
     const who = entry.via === 'dj' ? `DJ (${this.dj.mood})` : `requested by ${entry.requestedBy?.name || 'someone'}`;
     this.postText(`Now playing: **${entry.title}**${entry.channel ? ` - ${entry.channel}` : ''} (${who})`);
     if (config.djTalk && entry.via === 'dj') this.speak(`Here's ${entry.title}.`);
   }
 
   onTrackFailed(entry, reason) {
-    const blocked = /sign-in check|403|no audio format|unavailable|DRM/i.test(reason);
-    // DJ will burn the whole queue the same way. Say it once and stop.
-    // A song someone just asked for always gets told, so "Loading" doesn't sit there forever.
-    if (blocked && entry.via === 'dj') {
-      this.ytBlocks = (this.ytBlocks || 0) + 1;
-      if (this.ytBlocks === 1) {
-        this.postText(`YouTube is blocking audio from this server. The DJ is switching to SoundCloud instead of stopping.`);
-      }
-      // One blocked upload is not a reason to wipe the queue. Stop only if nothing will play.
-      if (this.ytBlocks >= 4) {
-        this.postText(`I still can't get any audio for this mood, so I stopped the DJ.`);
-        if (this.dj?.enabled) this.dj.turnOff({ silent: true });
-        this.player.queue.removeWhere((e) => e.via === 'dj');
+    const asked = entry.asked || entry.title;
+    if (entry.via === 'dj') {
+      // DJ picks that can't be found are skipped quietly. If nothing at all plays, stop and say why.
+      const fails = this.dj.onPickResult(false);
+      log.info(`DJ pick "${asked}" unplayable (${reason}); ${fails} in a row`);
+      if (fails >= 6 && this.dj.enabled) {
+        const why = sources.summary().filter((l) => !/: ok$/.test(l)).join('; ') || reason;
+        this.dj.turnOff({ silent: true });
+        this.postText(`I couldn't get audio for the last ${fails} DJ picks (${why}), so I stopped the DJ.`);
+        this.speak(`I can't get any audio right now, so I stopped the DJ.`);
       }
       return;
     }
-    this.ytBlocks = 0;
-    const why = /no audio format/i.test(reason)
-      ? 'YouTube did not provide an audio file for it, and there was no other copy'
-      : reason;
-    this.postText(`Couldn't play **${entry.asked || entry.title}**: ${why}.`);
-    if (entry.via === 'user') {
-      const m = entry.requestedBy?.id ? this.guild.members.cache.get(entry.requestedBy.id) : null;
-      const line = `I couldn't play ${entry.title}. ${why.charAt(0).toUpperCase()}${why.slice(1)}.`;
-      this.speak(line);
-      if (m) this.memory.figSaid(line, m.displayName);
-    }
+    this.postText(`Couldn't play **${asked}**: ${reason}.`);
+    const m = entry.requestedBy?.id ? this.guild.members.cache.get(entry.requestedBy.id) : null;
+    const line = `I couldn't play ${asked}. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+    this.speak(line);
+    if (m) this.memory.figSaid(line, m.displayName);
+  }
+
+  /** A source started refusing this machine. Say so once, so the room knows why songs take a detour. */
+  onSourceDown(source, reason) {
+    if (!this.connection) return;
+    const other = sources.order().filter((s) => s !== source && sources.isUp(s)).map(sources.label);
+    this.postText(`${reason}. ${other.length ? `Using ${other.join(' / ')} for now.` : 'No other source is working right now.'}`);
+  }
+
+  /** After a restart or crash, pick the DJ back up if it was on. */
+  restoreDj() {
+    const saved = store.dj(this.guild.id);
+    if (!saved.enabled || this.dj.enabled || this.player.current || this.player.queue.length) return;
+    if (!this.humansIn(this.voiceChannel()).length) return; // wait until someone is here
+    if (Date.now() - (saved.at || 0) > 12 * 3600 * 1000) return;
+    log.info(`restoring DJ (mood "${saved.mood}") after restart`);
+    crash.note(`restored DJ mood="${saved.mood}"`);
+    this.dj.turnOn(saved.mood);
+    this.postText(`DJ's back on: **${saved.mood}**.`);
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -438,6 +487,30 @@ class GuildSession extends EventEmitter {
   checkEmpty() {
     const ch = this.voiceChannel();
     if (!this.connection || !ch) return;
+    if (this.isHome(ch) && config.stayInHome) {
+      // Stay in the home channel. If it empties, stop the music (no point playing to nobody) but keep
+      // the DJ setting so it picks up again when people come back.
+      if (this.humansIn(ch).length === 0) {
+        if (!this.emptyTimer) {
+          this.emptyTimer = setTimeout(() => {
+            this.emptyTimer = null;
+            const c = this.voiceChannel();
+            if (!c || this.humansIn(c).length) return;
+            const saved = store.dj(this.guild.id);
+            if (this.player.current || this.player.queue.length) {
+              log.info('home channel empty; stopping music, staying connected');
+              this.player.stop();
+              store.setDj(this.guild.id, saved);
+            }
+          }, config.emptyLeaveSeconds * 1000);
+        }
+      } else {
+        clearTimeout(this.emptyTimer);
+        this.emptyTimer = null;
+        this.restoreDj();
+      }
+      return;
+    }
     if (this.humansIn(ch).length === 0) {
       if (!this.emptyTimer) {
         this.emptyTimer = setTimeout(() => {
@@ -457,6 +530,7 @@ class GuildSession extends EventEmitter {
 
   destroy() {
     this.destroyed = true;
+    sources.events.off('down', this.onSourceDownBound);
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     this.leave({ reason: 'shutdown' });

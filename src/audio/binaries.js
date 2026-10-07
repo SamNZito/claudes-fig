@@ -47,16 +47,15 @@ function ytdlpSpawn(args) {
 }
 
 function ytdlpBaseArgs() {
-  const args = ['--no-warnings', '--no-progress', '--no-playlist', '--ignore-config'];
-  // Default YouTube client serves formats that 403. web_safari + a progressive/HLS
-  // format actually returns audio. YouTube-only, so SoundCloud is unaffected.
-  args.push('--extractor-args', 'youtube:player_client=web_safari', '--force-ipv4');
+  const args = ['--no-warnings', '--no-progress', '--no-playlist', '--ignore-config', '--force-ipv4'];
+  if (config.ytdlpProxy) args.push('--proxy', config.ytdlpProxy);
   if (config.ytdlpCookies) args.push('--cookies', config.ytdlpCookies);
   args.push(...config.ytdlpExtraArgs);
   return args;
 }
 
-// Prefer formats that download. bestaudio often picks a stream the CDN then refuses.
-const AUDIO_FORMAT = '18/91/92/93/ba/b';
+// Best audio, never a SoundCloud 30-second preview (those format ids end in "_preview").
+// If only a preview exists, yt-dlp says "Requested format is not available" and we treat it as preview-only.
+const AUDIO_FORMAT = process.env.YTDLP_FORMAT || 'bestaudio[format_id!*=preview]/best[format_id!*=preview]';
 
 module.exports = { ffmpegPath, ytdlpPath, ytdlpSpawn, ytdlpBaseArgs, AUDIO_FORMAT, works };

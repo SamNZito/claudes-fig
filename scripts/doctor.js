@@ -1,9 +1,9 @@
 'use strict';
 // `npm run doctor` - checks everything Fig needs before you start it, and says how to fix what's missing.
 // Optional: `npm run doctor -- "song name"` also tries downloading a few seconds of that song.
-const { spawnSync, spawn } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const { config, validateConfig } = require('../src/config');
-const { ffmpegPath, ytdlpSpawn, ytdlpBaseArgs, AUDIO_FORMAT } = require('../src/audio/binaries');
+const { ffmpegPath, ytdlpSpawn } = require('../src/audio/binaries');
 
 let failed = 0;
 const okMark = (m) => console.log(`  OK    ${m}`);
@@ -44,8 +44,6 @@ async function main() {
     if (age > 45) warn(`yt-dlp is ${Math.round(age)} days old; YouTube breaks old versions`, 'yt-dlp -U   (or winget upgrade yt-dlp.yt-dlp)');
   } else bad('yt-dlp not found', 'winget install yt-dlp.yt-dlp   (or set YTDLP_PATH in .env)');
 
-  if (version('deno', ['--version'])) okMark('deno (JavaScript runtime yt-dlp uses for YouTube)');
-  else warn('deno not found; recent yt-dlp needs a JS runtime for YouTube', 'winget install DenoLand.Deno');
 
   try {
     require('opusscript');
@@ -74,30 +72,56 @@ async function main() {
     }
   }
 
+  // Spotify (optional): exact song lookup + Spotify links.
+  const spotify = require('../src/music/spotify');
+  if (spotify.configured()) {
+    try {
+      const r = await spotify.searchTracks('daft punk one more time', { limit: 1 });
+      if (r.length) okMark(`Spotify lookup works ("${r[0].asked}", ${r[0].durationSec}s)`);
+      else warn('Spotify answered but found nothing for a test search');
+    } catch (e) {
+      bad(`Spotify: ${e.message}`, 'check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET (developer.spotify.com; the app owner needs Premium since Feb 2026)');
+    }
+  } else warn('Spotify keys not set (optional)', 'add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET for exact song matching and Spotify album links');
+
   const song = process.argv[2];
   if (song && ytv && ffv) {
-    console.log(`\nTrying to download a few seconds of "${song}"...`);
-    const ok = await new Promise((resolve) => {
-      const yt = spawn(...ytdlpSpawn([...ytdlpBaseArgs(), '--no-playlist', '-f', AUDIO_FORMAT, '-o', '-', `ytsearch1:${song}`]), { windowsHide: true });
-      const f = spawn(ff, ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-t', '5', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'], { windowsHide: true });
-      let bytes = 0;
-      let err = '';
-      yt.stdout.pipe(f.stdin);
-      f.stdin.on('error', () => {});
-      yt.stderr.on('data', (d) => (err += d));
-      f.stdout.on('data', (d) => (bytes += d.length));
-      f.on('close', () => {
-        yt.kill();
-        resolve(bytes > 48000 * 4 ? true : err.trim().split('\n').pop() || 'no audio');
-      });
-      setTimeout(() => {
-        yt.kill();
-        f.kill();
-      }, 60000);
-    });
-    if (ok === true) okMark('music download + decode works');
-    else bad(`music download failed: ${ok}`, 'update yt-dlp, install deno, or set YTDLP_COOKIES');
-  } else if (!song) console.log('\n(Tip: `npm run doctor -- "daft punk one more time"` also tests a real download.)');
+    // Same path Fig uses: look the song up, find a full SoundCloud copy (no previews/DRM), download a few seconds.
+    const { lookup } = require('../src/music/lookup');
+    const { findPlayable } = require('../src/music/resolve');
+    console.log(`\nLooking up "${song}"...`);
+    const found = await lookup(song);
+    if (!found.ok) bad(`lookup failed: ${found.error}`);
+    else {
+      const it = found.items[0];
+      okMark(`found "${it.asked}"${it.meta?.durationSec ? ` (${it.meta.durationSec}s, via Spotify)` : ' (via SoundCloud search)'}`);
+      const req = { asked: it.asked, meta: it.meta || null, candidates: it.candidates || [], pinned: it.pinned || null, typed: it.typed || null, tried: new Set() };
+      const res = await findPlayable(req);
+      if (!res.ok) bad(`no playable copy: ${res.reason}`, 'many major-label songs are only previews or DRM on SoundCloud; try another song to confirm the setup works');
+      else {
+        okMark(`SoundCloud copy: "${res.track.title}" ${Math.round(res.probe.duration)}s`);
+        const { TrackSource } = require('../src/audio/trackSource');
+        const ok = await new Promise((resolve) => {
+          const t = new TrackSource(res.track, { infoPath: res.probe.infoPath }).start();
+          const timer = setTimeout(() => {
+            t.destroy();
+            resolve('no audio within 45s');
+          }, 45000);
+          t.on('ready', () => {
+            clearTimeout(timer);
+            t.destroy();
+            resolve(true);
+          });
+          t.on('failed', (r) => {
+            clearTimeout(timer);
+            resolve(r);
+          });
+        });
+        if (ok === true) okMark('music download + decode works');
+        else bad(`music download failed: ${ok}`, 'update yt-dlp (yt-dlp -U)');
+      }
+    }
+  } else if (!song) console.log('\n(Tip: `npm run doctor -- "song name"` also tests finding and downloading a real song.)');
 
   console.log(failed ? `\n${failed} problem(s) to fix.` : '\nAll good. Start Fig with: npm start');
   process.exit(failed ? 1 : 0);

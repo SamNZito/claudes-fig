@@ -1,19 +1,21 @@
 'use strict';
-// Turns a track URL into PCM using `yt-dlp -o - URL | ffmpeg ... s16le`.
+// Turns a probed track into PCM: `yt-dlp --load-info-json <probe> -o - | ffmpeg ... s16le`.
+// The probe (music/resolve.js) already chose a real, full-length audio format, so this only downloads.
 // Emits:
-//   'ready'   first PCM bytes arrived (it can be heard as soon as the mixer pulls it)
+//   'ready'   first PCM bytes arrived
 //   'started' the mixer actually pulled audio: the song is audible in the channel
-//   'failed'  (reason) nothing playable came out
-//   'ended'   ({ early, positionMs, reason }) all audio was played
+//   'failed'  (reason, kind) no audio came out
+//   'ended'   ({ early, positionMs, durationMs, reason, kind }) the stream ran out
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const { PcmSource } = require('./pcmSource');
 const { ffmpegPath, ytdlpSpawn, ytdlpBaseArgs, AUDIO_FORMAT } = require('./binaries');
+const { classify, sourceOf } = require('../music/sources');
 const { config } = require('../config');
 const log = require('../log').logger('track');
 
 function lastLines(text, n = 3) {
-  return text
+  return String(text || '')
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
@@ -21,65 +23,62 @@ function lastLines(text, n = 3) {
     .join(' | ');
 }
 
-function friendlyReason(stderr) {
-  const s = stderr.toLowerCase();
-  if (s.includes('age-restricted') || s.includes('confirm your age') || s.includes('inappropriate for some users')) return 'it is age-restricted';
-  if (s.includes('sign in to confirm') || s.includes('not a bot')) return 'YouTube blocked the download (sign-in check)';
-  if (s.includes('drm')) return 'it is DRM protected';
-  if (s.includes('video unavailable') || s.includes('private video')) return 'the video is unavailable';
-  if (s.includes('age')) return 'it is age-restricted';
-  if (s.includes('copyright')) return 'it was blocked for copyright';
-  if (s.includes('403')) return 'the host refused the download (403)';
-  if (s.includes('requested format is not available')) return 'no audio format was available';
-  if (s.includes('no supported javascript runtime') || s.includes('js runtime')) return 'yt-dlp needs a JavaScript runtime (install deno)';
-  if (s.includes('enoent') || s.includes('not recognized')) return 'yt-dlp or ffmpeg is not installed';
-  return lastLines(stderr, 1) || 'unknown error';
+/** Kept for older callers: the human reason only. */
+function friendlyReason(stderr, source) {
+  return classify(stderr, source).reason;
 }
 
 class TrackSource extends EventEmitter {
   /**
-   * @param {object} track { url, title }
-   * @param {object} [opts] { startSec }
+   * @param {object} track { url, title, key, duration }
+   * @param {object} [opts] { startSec, infoPath }
    */
-  constructor(track, { startSec = 0 } = {}) {
+  constructor(track, { startSec = 0, infoPath = null } = {}) {
     super();
     this.track = track;
+    this.source = sourceOf(track);
     this.startSec = startSec;
+    this.infoPath = infoPath;
     this.pcm = new PcmSource({ label: track.title });
-    this.stderr = '';
+    this.ytErr = '';
+    this.ffErr = '';
     this.done = false;
     this.ffmpegExit = null;
     this.killed = false;
     this.startTimer = null;
-    this.stallTimer = null;
+  }
+
+  get stderr() {
+    return `${this.ytErr}\n${this.ffErr}`;
   }
 
   start() {
-    const ytArgs = [...ytdlpBaseArgs(), '--no-playlist', '-f', AUDIO_FORMAT, '--quiet', '-o', '-'];
-    // Seek in the downloader. ffmpeg -ss on a pipe replays the song from the top first.
+    const ytArgs = [...ytdlpBaseArgs(), '--quiet', '-f', AUDIO_FORMAT, '-o', '-'];
+    // Seek in the downloader. ffmpeg -ss on a pipe would decode from the top first.
     if (this.startSec > 1) ytArgs.push('--download-sections', `*${Math.floor(this.startSec)}-inf`);
-    ytArgs.push(this.track.url);
+    if (this.infoPath) ytArgs.push('--load-info-json', this.infoPath);
+    else ytArgs.push(this.track.url);
     const ffArgs = ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-vn'];
     if (config.normalizeAudio) ffArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
     ffArgs.push('-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1');
 
-    log.debug(`spawn yt-dlp for ${this.track.url}`);
+    log.debug(`download ${this.track.key || this.track.url} start=${this.startSec}s probe=${this.infoPath ? 'yes' : 'no'}`);
     try {
       this.yt = spawn(...ytdlpSpawn(ytArgs), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
       this.ff = spawn(ffmpegPath(), ffArgs, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
-      this.fail(`could not start downloader: ${e.message}`);
+      this.fail(`could not start downloader: ${e.message}`, 'tooling');
       return this;
     }
 
     const onSpawnError = (name) => (err) => {
-      this.stderr += `\n${name}: ${err.code || ''} ${err.message}`;
-      this.fail(err.code === 'ENOENT' ? `${name} is not installed or not on PATH` : `${name} error: ${err.message}`);
+      if (err.code === 'ENOENT') this.fail(`${name} is not installed or not on PATH`, 'tooling');
+      else this.fail(`${name} error: ${err.message}`, 'unknown');
     };
     this.yt.on('error', onSpawnError('yt-dlp'));
     this.ff.on('error', onSpawnError('ffmpeg'));
-    this.yt.stderr.on('data', (d) => (this.stderr = (this.stderr + d.toString()).slice(-4000)));
-    this.ff.stderr.on('data', (d) => (this.stderr = (this.stderr + d.toString()).slice(-4000)));
+    this.yt.stderr.on('data', (d) => (this.ytErr = (this.ytErr + d.toString()).slice(-4000)));
+    this.ff.stderr.on('data', (d) => (this.ffErr = (this.ffErr + d.toString()).slice(-2000)));
     this.ff.stdin.on('error', () => {}); // EPIPE when we kill things; harmless
     this.yt.stdout.on('error', () => {});
     this.yt.stdout.pipe(this.ff.stdin);
@@ -97,19 +96,24 @@ class TrackSource extends EventEmitter {
 
     this.ff.on('close', (code) => {
       this.ffmpegExit = code;
-      if (this.pcm.received === 0) {
-        this.fail(friendlyReason(this.stderr));
-      }
+      if (this.pcm.received === 0) this.failFromStderr();
     });
     this.yt.on('close', (code) => {
-      if (code !== 0 && !this.killed) log.debug(`yt-dlp exited ${code}: ${lastLines(this.stderr)}`);
+      this.ytExit = code;
+      if (code !== 0 && !this.killed) log.info(`yt-dlp exited ${code} for ${this.track.key}: ${lastLines(this.ytErr) || '(no message)'}`);
     });
 
     this.startTimer = setTimeout(() => {
-      if (this.pcm.received === 0) this.fail(`timed out after ${config.trackStartTimeoutSec}s waiting for audio`);
+      if (this.pcm.received === 0) this.fail(`timed out after ${config.trackStartTimeoutSec}s waiting for audio`, 'timeout');
     }, config.trackStartTimeoutSec * 1000);
 
     return this;
+  }
+
+  failFromStderr() {
+    // yt-dlp's message says why; ffmpeg's "Invalid data" only says that nothing usable arrived.
+    const c = classify(this.ytErr.trim() ? this.ytErr : this.stderr, this.source);
+    this.fail(c.reason, c.kind);
   }
 
   /** Called by the player every few seconds while this track is current and unpaused. */
@@ -126,25 +130,26 @@ class TrackSource extends EventEmitter {
     return now - this.lastProgress.at > config.stallTimeoutSec * 1000 && !this.pcm.inputEnded;
   }
 
-  fail(reason) {
+  fail(reason, kind = 'unknown') {
     if (this.done) return;
     this.done = true;
     clearTimeout(this.startTimer);
-    log.warn(`cannot play "${this.track.title}": ${reason}${this.stderr ? ` (${lastLines(this.stderr)})` : ''}`);
+    log.warn(`cannot play "${this.track.title}" ${this.track.key || ''}: ${kind}: ${reason}${this.stderr.trim() ? ` (${lastLines(this.stderr)})` : ''}`);
     this.kill();
-    this.emit('failed', reason);
+    this.emit('failed', reason, kind);
   }
 
   finish() {
     if (this.done) return;
-    if (this.pcm.received === 0) return this.fail(friendlyReason(this.stderr));
+    if (this.pcm.received === 0) return this.failFromStderr();
     this.done = true;
     clearTimeout(this.startTimer);
     const positionMs = this.startSec * 1000 + this.pcm.positionMs;
     const durMs = (this.track.duration || 0) * 1000;
     const early = durMs > 0 && positionMs < durMs - 10000;
+    const c = early && this.stderr.trim() ? classify(this.stderr, this.source) : { kind: null, reason: null };
     this.kill();
-    this.emit('ended', { early, positionMs, reason: early ? friendlyReason(this.stderr) : null });
+    this.emit('ended', { early, positionMs, durationMs: durMs, reason: c.reason, kind: c.kind, ytExit: this.ytExit });
   }
 
   get positionMs() {

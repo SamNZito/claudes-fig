@@ -10,9 +10,77 @@ const store = require('./store');
 const log = require('./log').logger('fig');
 const crash = require('./crashlog');
 
+// ---- one Fig per machine. A second client on the same token kicks the first out of voice. ----
+{
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const pidFile = path.join(__dirname, '..', 'logs', 'fig.pid');
+  try {
+    const old = Number(String(fs.readFileSync(pidFile, 'utf8')).trim());
+    if (old && old !== process.pid) {
+      let running = false;
+      try {
+        process.kill(old, 0);
+        running = true;
+      } catch (e) {
+        running = e.code === 'EPERM';
+      }
+      try {
+        if (running && fs.readFileSync(`/proc/${old}/stat`, 'utf8').split(') ').pop().trim().startsWith('Z')) running = false;
+      } catch {
+        /* not linux */
+      }
+      if (running && !process.env.FIG_ALLOW_SECOND) {
+        console.error(`Fig is already running (pid ${old}). Not starting a second copy on the same token.`);
+        process.exit(0);
+      }
+    }
+  } catch {
+    /* no pid file */
+  }
+  try {
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+    fs.writeFileSync(pidFile, String(process.pid));
+    process.on('exit', () => {
+      try {
+        if (Number(fs.readFileSync(pidFile, 'utf8')) === process.pid) fs.unlinkSync(pidFile);
+      } catch {
+        /* ignore */
+      }
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 crash.noteIfPreviousDied();
 crash.note('process started');
-setInterval(() => crash.beat(), 20000).unref();
+// Heartbeat: a file for scripts/ensure-running.sh, and an IPC message for scripts/supervise.js.
+// If the event loop gets stuck these stop, and the supervisor kills and restarts Fig.
+function heartbeat() {
+  crash.beat();
+  if (process.send) {
+    try {
+      process.send({ type: 'beat', at: Date.now() });
+    } catch {
+      /* supervisor gone */
+    }
+  }
+}
+heartbeat();
+setInterval(heartbeat, 10000).unref();
+// Without a supervisor, notice a machine freeze ourselves and exit so whatever started us restarts us clean.
+if (!process.send) {
+  let lastTick = Date.now();
+  setInterval(() => {
+    const gap = Date.now() - lastTick;
+    lastTick = Date.now();
+    if (gap > 60000) {
+      crash.note(`process was frozen for ~${Math.round(gap / 1000)}s; exiting for a clean restart`);
+      process.exit(75);
+    }
+  }, 5000).unref();
+}
 
 const problems = validateConfig();
 if (problems.length) {
@@ -58,16 +126,30 @@ function canJoin(channel) {
   return Boolean(perms?.has(PermissionFlagsBits.Connect) && perms?.has(PermissionFlagsBits.Speak) && channel.joinable);
 }
 
-/** Join where people are (used at startup). */
+function homeChannel(guild) {
+  const h = String(config.homeVoiceChannel || '').trim().replace(/^#/, '').toLowerCase();
+  if (!h) return null;
+  return (
+    guild.channels.cache.find(
+      (c) => (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice) && (c.id === h || String(c.name).toLowerCase() === h),
+    ) || null
+  );
+}
+
+/** Join where people are; with HOME_VOICE_CHANNEL set, go home when nobody is anywhere. */
 async function autoJoinBusiest(guild) {
   if (!config.autoJoin) return;
   const s = getSession(guild);
   if (s.connection) return;
   const channels = guild.channels.cache
     .filter((c) => (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice) && c.id !== guild.afkChannelId)
-    .filter((c) => humans(c).length > 0 && canJoin(c))
+    .filter((c) => humans(c).length > 0 && canJoin(c) && c.id !== s.suppressAutoJoinChannel)
     .sort((a, b) => humans(b).length - humans(a).length);
-  const target = channels.first();
+  const home = homeChannel(guild);
+  // People in the home channel win ties; otherwise go where the people are; otherwise go home.
+  let target = channels.first();
+  if (home && humans(home).length && humans(home).length >= humans(target || home).length) target = home;
+  if (!target && home && config.stayInHome && canJoin(home) && home.id !== s.suppressAutoJoinChannel) target = home;
   const summary = guild.channels.cache
     .filter((c) => c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice)
     .map((c) => `#${c.name}:${humans(c).length}`)
@@ -80,6 +162,9 @@ async function autoJoinBusiest(guild) {
     } catch (e) {
       log.warn(`auto-join failed: ${e.message}`);
       crash.note(`auto-join failed in ${guild.name}: ${e.message}`);
+      s.wantConnected = true;
+      s.voiceChannelId = target.id;
+      s.scheduleRejoin(); // keep trying; never stay out because of one failed join
     }
   } else {
     log.info(`auto-join ${guild.name}: nobody to join. channels: ${summary || 'none cached'}`);
@@ -154,6 +239,23 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   }
 
   if (s.connection || s.wantConnected) {
+    // Fig is sitting alone (e.g. in its home channel) and people gathered somewhere else: go to them.
+    const mine = s.voiceChannel();
+    const joined = newState.channel;
+    if (
+      config.autoJoin &&
+      s.connection &&
+      joined &&
+      joined.id !== s.voiceChannelId &&
+      joined.id !== guild.afkChannelId &&
+      mine &&
+      humans(mine).length === 0 &&
+      canJoin(joined)
+    ) {
+      log.info(`moving to #${joined.name}: people are there and #${mine.name} is empty`);
+      s.join(joined).catch((e) => log.warn(`move failed: ${e.message}`));
+      return;
+    }
     s.checkEmpty();
     return;
   }
@@ -191,6 +293,21 @@ client.on(Events.MessageCreate, async (message) => {
     log.warn('mention handling failed:', e.message);
   }
 });
+
+// If the gateway stays down (e.g. after the machine was paused), restart instead of sitting deaf.
+let notReadySince = 0;
+setInterval(() => {
+  if (!client.readyAt) return; // still logging in; the login timer handles that
+  if (client.ws.status === 0) {
+    notReadySince = 0;
+    return;
+  }
+  notReadySince = notReadySince || Date.now();
+  if (Date.now() - notReadySince > 3 * 60 * 1000) {
+    crash.note(`gateway not ready for 3 minutes (status ${client.ws.status}); exiting so the supervisor restarts clean`);
+    process.exit(1);
+  }
+}, 15000).unref();
 
 client.on(Events.Error, (e) => {
   log.error('client error:', e.message);

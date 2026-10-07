@@ -1,0 +1,23 @@
+# systemd unit for Fig on a normal Linux machine (starts on boot, restarts on crash or hang).
+#   sudo cp deploy/fig.service /etc/systemd/system/fig.service
+#   sudo sed -i "s#/opt/claudes_fig#$(pwd)#g; s#User=fig#User=$USER#" /etc/systemd/system/fig.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now fig
+#   journalctl -u fig -f      (and logs/fig.log, logs/crash.log)
+[Unit]
+Description=Fig Discord voice bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fig
+WorkingDirectory=/opt/claudes_fig
+ExecStart=/usr/bin/env node scripts/supervise.js
+Restart=always
+RestartSec=5
+# supervise.js restarts a hung Fig itself; systemd restarts supervise.js if it ever dies.
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

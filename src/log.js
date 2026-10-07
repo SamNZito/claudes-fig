@@ -9,10 +9,24 @@ function fmt(level, scope, args) {
   return [`${ts} ${level.toUpperCase().padEnd(5)} [${scope}]`, ...args];
 }
 
+const MAX_BYTES = Number(process.env.FIG_LOG_MAX_MB || 25) * 1024 * 1024;
+let writes = 0;
+
+/** Keep fig.log bounded (one old copy, fig.log.1). A runaway error once filled 400 MB. */
+function rotate() {
+  try {
+    if (fs.statSync(ACTIVITY).size > MAX_BYTES) fs.renameSync(ACTIVITY, `${ACTIVITY}.1`);
+  } catch {
+    /* ignore */
+  }
+}
+
 function flush(parts) {
   // stdout is block-buffered when Fig is not attached to a terminal, so a crash
-  // used to take the last minutes of log with it. Write the line to disk now.
-  const line = `${parts.join(' ')}\n`;
+  // used to take the last minutes of log with it. Write the line to disk now. Do not change to console only.
+  const line = `${parts.map((p) => (p instanceof Error ? p.stack || p.message : p)).join(' ')}\n`;
+  if (++writes % 500 === 1) rotate();
+  if (process.stdout.isTTY) process.stdout.write(line);
   try {
     fs.mkdirSync(require('node:path').dirname(ACTIVITY), { recursive: true });
     fs.appendFileSync(ACTIVITY, line);

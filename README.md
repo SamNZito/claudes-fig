@@ -10,10 +10,10 @@ Reliability comes before features. The sound in the channel is the product.
 |---|---|---|
 | Node.js 22.12+ | runs Fig | `winget install OpenJS.NodeJS.LTS` |
 | ffmpeg | decodes music and speech | `winget install Gyan.FFmpeg` |
-| yt-dlp | finds and downloads music | `winget install yt-dlp.yt-dlp` |
-| deno | yt-dlp needs a JS runtime for YouTube | `winget install DenoLand.Deno` |
+| yt-dlp | downloads music from SoundCloud | `winget install yt-dlp.yt-dlp` |
 | Discord bot token | the bot account | see below |
 | xAI API key | Grok | console.x.ai |
+| Spotify app keys (optional, recommended) | exact song lookup and Spotify links | developer.spotify.com |
 
 On Windows, `setup-windows.ps1` installs all of it, runs `npm install`, creates `.env` and runs the checks:
 
@@ -43,7 +43,7 @@ npm start
 
 Say the wake name (default **Fig**) anywhere in the sentence:
 
-- "Hey Fig, play Mr. Brightside." If a song is already playing, it goes in the queue.
+- "Hey Fig, play Mr. Brightside." If a song is already playing, it goes in the queue. You can also paste a Spotify or SoundCloud link into `/play`.
 - "Fig, play Dreams by Fleetwood Mac next."
 - "Fig skip." / "Fig pause." / "Fig resume." / "Fig stop." / "Fig clear."
 - "Fig turn it down." / "Fig volume 30."
@@ -57,17 +57,16 @@ Say the wake name (default **Fig**) anywhere in the sentence:
 - Someone makes a claim, then: "Fig, fact-check that."
 - "Fig, time out Jordan for 5 minutes." Bans need a spoken "yes" first.
 
-After Fig answers you, you have a few seconds to follow up without saying its name. Nobody else gets that window.
+### Modes (`/mode`)
 
-### Chattiness (`/mode`)
+There are two modes:
 
 | Mode | Fig responds to |
 |---|---|
-| conversation | anything; no wake name needed |
-| quiet | only when named |
-| normal (default) | named, or a clear music ask like "skip this song" or "play ..." |
-| active | normal, plus the occasional relevant chime-in |
-| chaos | acts like another person in the call |
+| normal (default) | only when you say its name. Without the name, nothing happens, including follow-ups and music commands. |
+| conversation | anything said in the call; no name needed |
+
+Every new call starts in normal mode, including after a restart. Say "Fig, conversation mode" or use `/mode` to switch. A reconnect after a call blip keeps the current mode.
 
 ### Slash commands
 
@@ -95,15 +94,41 @@ Moderation (`/mod`, or asking by voice) also requires the matching Discord permi
 | Pause stays paused | Pause is a flag on the music lane only. Fig's speech plays on its own lane, and a call blip only stops frames being pulled, so neither one can unpause music. |
 | Music ducks while Fig talks | Music dips to `DUCK_LEVEL` under speech, and while the person Fig is talking with speaks. Set `DUCK_MODE=wait` to hold the music instead. |
 | DJ has a memory | `data/guild-<id>.json` keeps the last 400 plays by source id. The DJ skips those and near-duplicates of recent titles. Your own requests are never blocked. |
-| Two uploads of the same title are two songs | Tracks are identified by source id (`youtube:<videoId>`), never by title. Queue entries get their own ids. |
+| Two uploads of the same title are two songs | Uploads are identified by source id (`soundcloud:<id>`), never by title. Queue entries get their own ids. |
 | Volume starts quiet | `DEFAULT_VOLUME=20`, with loudness normalization so songs sit at the same level |
-| Talks only to who spoke | Wake-name check on every transcript, a follow-up window for that one person, and replies addressed to them |
+| Talks only to who spoke | In normal mode, nothing happens without the wake name. Replies are addressed to the person who spoke. |
 | Recovers if the call drops | Voice reconnect with backoff, crash supervisor, and resume-from-position if a stream dies mid-song |
+
+## Keeping Fig up
+
+`npm start` runs Fig under `scripts/supervise.js`. The supervisor restarts Fig when it crashes, when it hangs (no heartbeat for 90 s), and when the machine was frozen. It also refuses to run two copies, because two clients on one token kick each other out of voice.
+
+The supervisor can't restart itself after a reboot, so something outside has to start it:
+
+- **Windows PC:** `deploy/install-windows-task.ps1` (admin PowerShell). It starts Fig at boot and re-checks every 5 minutes. Also turn off sleep.
+- **Linux:** `deploy/fig.service` (systemd).
+- **Sandbox or container:** run `scripts/ensure-running.sh` from the startup hook and from cron every minute.
+
+Set `HOME_VOICE_CHANNEL=zzzz` and Fig goes back to #zzzz after every restart. It picks the DJ back up if the DJ was on.
+
+## Where the music comes from
+
+**Audio comes from SoundCloud. YouTube is not used.** Spotify is used to find songs, not to play them: Spotify audio is DRM-locked and no bot can stream it.
+
+1. **Lookup.** With Spotify keys set, "play please come home for christmas" is looked up on Spotify first, which gives the real artist, title and length ("Eagles - Please Come Home for Christmas", 2:58). Spotify track and album links work the same way, and a track link works even without keys. Spotify won't hand out playlist contents to bots (since February 2026), unless the playlist is owned by the app's account.
+2. **Audio.** Fig searches SoundCloud for that artist and title and probes each copy before it plays. It skips 30-second previews, DRM-locked copies, and copies whose length doesn't match Spotify's (edits, previews, wrong songs). A copy that still stops early is swapped for another one.
+3. **Not found.** If SoundCloud only has previews or locked copies, Fig says so instead of going quiet. This happens for some major-label songs, because labels often post only previews there.
+
+A pasted YouTube link is only used for its title, and the song is then found on SoundCloud.
+
+A skipped song is gone. No other upload of it, no DJ pick, and no queued duplicate plays for `SKIP_BLOCK_HOURS` (6 by default), even across restarts. Asking for it again on purpose works.
+
+`npm run doctor -- "song name"` tests the whole path from the machine Fig runs on.
 
 ## Troubleshooting
 
-- **"YouTube wants a sign-in check"**: export `cookies.txt` from a logged-in browser and set `YTDLP_COOKIES=C:\path\cookies.txt`.
-- **Songs fail after YouTube changes something**: update yt-dlp with `winget upgrade yt-dlp.yt-dlp` or `yt-dlp -U`.
+- **"SoundCloud only has previews or locked copies"**: that song isn't fully on SoundCloud. Try another version, or a remix.
+- **Downloads start failing everywhere**: update yt-dlp with `winget upgrade yt-dlp.yt-dlp` or `yt-dlp -U`.
 - **Fig doesn't hear anyone**: make sure it isn't server-deafened, check that `LISTEN=true`, and look for "STT failed" in the console. You need to say the wake name unless you're in conversation mode.
 - **Grok model errors**: `npm run doctor` lists the models your key can use. Set `GROK_MODEL` to one of them.
 - More detail: `LOG_LEVEL=debug`.

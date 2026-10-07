@@ -21,7 +21,11 @@ function defaults() {
     },
     // Everything that has started playing (or been skipped) recently. Keyed by source id, never by title,
     // so two uploads of the same title are two different songs.
-    history: [], // { id, key, title, via, at }
+    history: [], // { id, key, title, channel, asked, via, how, at }
+    // Songs someone skipped. Nothing automatic (DJ, fallback copy, queued DJ pick) may play them again
+    // until they expire. Saved, so a restart doesn't bring them back either.
+    skipped: [], // { tokens: [...], keys: [...], label, until }
+    dj: { enabled: false, mood: '', at: 0 }, // restored after a restart
   };
 }
 
@@ -79,7 +83,13 @@ function flushAll() {
 }
 
 function settings(guildId) {
-  return load(guildId).settings;
+  const st = load(guildId).settings;
+  // Only "normal" and "conversation" exist now. Old saved modes (quiet/active/chaos) become normal.
+  if (!config.MODES.includes(st.mode)) {
+    st.mode = 'normal';
+    save(guildId);
+  }
+  return st;
 }
 
 function updateSettings(guildId, patch) {
@@ -100,4 +110,35 @@ function history(guildId) {
   return load(guildId).history;
 }
 
-module.exports = { load, settings, updateSettings, addHistory, history, flushAll, _cache: cache };
+function skipped(guildId) {
+  const data = load(guildId);
+  const now = Date.now();
+  const live = (data.skipped || []).filter((s) => s.until > now);
+  if (live.length !== (data.skipped || []).length) {
+    data.skipped = live;
+    save(guildId);
+  }
+  return live;
+}
+
+function addSkipped(guildId, entry) {
+  const data = load(guildId);
+  data.skipped = [...skipped(guildId), entry].slice(-200);
+  save(guildId);
+}
+
+function setSkipped(guildId, list) {
+  load(guildId).skipped = list;
+  save(guildId);
+}
+
+function setDj(guildId, dj) {
+  load(guildId).dj = { ...dj, at: Date.now() };
+  save(guildId);
+}
+
+function dj(guildId) {
+  return load(guildId).dj || { enabled: false, mood: '', at: 0 };
+}
+
+module.exports = { load, settings, updateSettings, addHistory, history, skipped, addSkipped, setSkipped, setDj, dj, flushAll, _cache: cache };

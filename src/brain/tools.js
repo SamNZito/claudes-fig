@@ -37,7 +37,7 @@ const TOOLS = [
     { action: { type: 'string', enum: ['on', 'off', 'change_mood'] }, mood: { type: 'string', description: 'The vibe, e.g. "late night lofi", "2000s pop punk"' } },
     ['action'],
   ),
-  fn('set_mode', 'Change how chatty Fig is.', { mode: { type: 'string', enum: MODES } }, ['mode']),
+  fn('set_mode', 'Switch mode. normal = only respond when your name is said. conversation = respond without your name.', { mode: { type: 'string', enum: MODES } }, ['mode']),
   fn('set_personality', 'Change how Fig talks. Use preset for a known one, or description to invent one.', {
     preset: { type: 'string', enum: Object.keys(PRESETS) },
     description: { type: 'string', description: 'A phrase describing a new personality' },

@@ -1,6 +1,6 @@
 'use strict';
 // Why Fig died. Written with appendFileSync so a kill still leaves the last lines on disk.
-// Activity stays in /tmp/claudes-fig.log. This file is only starts, drops, and crashes.
+// Activity is in logs/fig.log. This file is only starts, drops, kills, and voice events.
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -12,6 +12,11 @@ function write(msg) {
   const line = `${new Date().toISOString()} pid=${process.pid} ${msg}\n`;
   try {
     fs.mkdirSync(DIR, { recursive: true });
+    try {
+      if (fs.statSync(FILE).size > 5 * 1024 * 1024) fs.renameSync(FILE, `${FILE}.1`);
+    } catch {
+      /* no file yet */
+    }
     fs.appendFileSync(FILE, line);
   } catch {
     /* the crash log must never take the bot down */

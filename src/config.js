@@ -23,7 +23,8 @@ function list(name) {
     .filter(Boolean);
 }
 
-const MODES = ['conversation', 'quiet', 'normal', 'active', 'chaos'];
+// normal: Fig needs its wake name. conversation: no wake name needed. Every call starts in normal.
+const MODES = ['normal', 'conversation'];
 
 const config = {
   discordToken: str('DISCORD_TOKEN'),
@@ -42,6 +43,8 @@ const config = {
   defaultMode: MODES.includes(str('DEFAULT_MODE', 'normal')) ? str('DEFAULT_MODE', 'normal') : 'normal',
   defaultPersonality: str('DEFAULT_PERSONALITY', 'fig'),
   followupSeconds: num('FOLLOWUP_SECONDS', 12),
+  // Every new call (and every restart) starts in normal mode.
+  resetModeOnJoin: bool('RESET_MODE_ON_JOIN', true),
 
   defaultVolume: Math.max(0, Math.min(100, num('DEFAULT_VOLUME', 20))),
   duckLevel: Math.max(0, Math.min(1, num('DUCK_LEVEL', 0.25))),
@@ -59,8 +62,27 @@ const config = {
     .split(' ')
     .map((s) => s.trim())
     .filter(Boolean),
+  // Route yt-dlp through a proxy, e.g. http://user:pass@host:port (only if SoundCloud blocks this machine's region).
+  ytdlpProxy: str('YTDLP_PROXY', ''),
+  // Spotify is used to look songs up (exact artist/title/length, Spotify links). Audio comes from SoundCloud.
+  spotifyClientId: str('SPOTIFY_CLIENT_ID', ''),
+  spotifyClientSecret: str('SPOTIFY_CLIENT_SECRET', ''),
+  // Audio sources. Default: soundcloud only (YouTube is not used). A source that refuses this machine is skipped
+  // for SOURCE_COOLDOWN_MIN (doubling, max 2 h).
+  musicSources: list('MUSIC_SOURCES').map((s) => s.toLowerCase()),
+  sourceCooldownMin: num('SOURCE_COOLDOWN_MIN', 10),
+  probeTimeoutSec: num('PROBE_TIMEOUT_SEC', 30),
+  resolveBudgetSec: num('RESOLVE_BUDGET_SEC', 60),
+  // A copy that stops before this many seconds (and well short of its length) is a bad file / preview, not "the song ended".
+  minSongSec: num('MIN_SONG_SEC', 45),
+  // How long a skipped song stays banned from coming back (DJ, fallback copies, queue). An explicit request lifts it.
+  skipBlockHours: num('SKIP_BLOCK_HOURS', 6),
 
   autoJoin: bool('AUTO_JOIN', true),
+  // Fig's home voice channel (id or name, e.g. "zzzz"). It joins here on startup and comes back here after any restart.
+  homeVoiceChannel: str('HOME_VOICE_CHANNEL', ''),
+  // Stay in the home channel even when it is empty (so Fig is there when people arrive).
+  stayInHome: bool('STAY_IN_HOME', true),
   emptyLeaveSeconds: num('EMPTY_LEAVE_SECONDS', 60),
   announceChannelId: str('ANNOUNCE_CHANNEL_ID', ''),
   guildIds: list('GUILD_IDS'),

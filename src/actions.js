@@ -75,13 +75,14 @@ async function play(ctx, { query, when = 'queue' }) {
   });
   if (!res.ok) return no(res.error);
   const first = res.entries[0];
+  const label = res.entries.length > 1 ? first.title : first.asked || first.title;
   const many = res.entries.length > 1 ? ` (+${res.entries.length - 1} more from the playlist)` : '';
   if (res.startsNow || when === 'now') {
     // The music starting is the confirmation. "Now playing" is posted when audio actually starts.
-    return ok(null, { text: `Loading **${first.title}**${many}...`, startsNow: true, entry: first });
+    return ok(null, { text: `Finding **${label}**${many}...`, startsNow: true, entry: first });
   }
   const pos = when === 'next' ? 'next up' : `#${res.position} in the queue`;
-  return ok(`Queued ${first.title}, ${pos}.`, { text: `Queued **${first.title}**${many}, ${pos}.`, entry: first });
+  return ok(`Queued ${label}, ${pos}.`, { text: `Queued **${label}**${many}, ${pos}.`, entry: first });
 }
 
 function skip(ctx) {
@@ -89,7 +90,7 @@ function skip(ctx) {
   if (denied) return denied;
   const skipped = ctx.session.player.skip();
   if (!skipped) return no("Nothing's playing.");
-  return ok(null, { text: `Skipped **${skipped.title}**.` });
+  return ok(null, { text: `Skipped **${skipped.title || skipped.asked}**. It won't come back unless someone asks for it.` });
 }
 
 function remove(ctx, { which }) {
@@ -192,15 +193,14 @@ function dj(ctx, { action = 'on', mood }) {
 function setMode(ctx, { mode }) {
   const denied = need(ctx, 'control');
   if (denied) return denied;
-  const m = String(mode || '').toLowerCase();
-  if (!MODES.includes(m)) return no(`Modes are: ${MODES.join(', ')}.`);
+  let m = String(mode || '').toLowerCase();
+  if (/convers|chat|talk|no name/.test(m)) m = 'conversation';
+  if (/normal|default|wake|name|quiet/.test(m) && m !== 'conversation') m = 'normal';
+  if (!MODES.includes(m)) return no('There are two modes: normal (say my name) and conversation (no name needed).');
   store.updateSettings(ctx.session.guild.id, { mode: m });
   const blurb = {
     conversation: "No need to say my name. I'm all ears.",
-    quiet: "I'll only answer when you say my name.",
-    normal: "I'll answer when you say my name or clearly ask for something.",
-    active: "I'll chime in when it's relevant.",
-    chaos: "I'm just another person in the call now. Good luck.",
+    normal: `Say ${store.settings(ctx.session.guild.id).wakeName} first and I'm on it.`,
   }[m];
   return ok(`${cap(m)} mode. ${blurb}`);
 }
@@ -274,6 +274,7 @@ function status(ctx) {
     `Music: ${np ? `${np.paused ? 'paused on' : np.status === 'loading' ? 'loading' : 'playing'} ${np.entry.title}` : 'nothing'}; ${s.player.queue.length} queued; volume ${s.player.volume}%`,
     `DJ: ${s.dj.enabled ? `on (${s.dj.mood})` : 'off'}`,
     `Mode: ${st.mode}; name: ${st.wakeName}; personality: ${p.label}; voice: ${st.voice}`,
+    `Music sources: ${require('./music/sources').summary().join('; ')}`,
     `Listening: ${s.listener ? 'yes' : 'no'}${s.memory.heldImage() ? '; holding an image' : ''}${s.timers.size ? `; ${s.timers.size} timer(s)` : ''}`,
   ];
   const spoken = `${ch ? `I'm in ${ch.name}` : "I'm not in a call"}, ${summarize(s).replace(/^./, (c) => c.toLowerCase())}${s.dj.enabled ? ` DJ is on, mood ${s.dj.mood}.` : ''} ${cap(st.mode)} mode.`;

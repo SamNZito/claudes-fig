@@ -14,6 +14,7 @@ test('loudnorm pipeline produces audio', async () => {
 
 test('resume from an offset starts mid-song', async () => {
   const src = new TrackSource({ url: 'https://www.youtube.com/watch?v=tone-o', title: 'o', duration: 6 }, { startSec: 4 }).start();
+  // (fake yt-dlp honours --download-sections like the real one)
   let ended = null;
   src.on('ended', (e) => (ended = e));
   assert.ok(await waitFor(() => src.pcm.inputEnded, 8000));

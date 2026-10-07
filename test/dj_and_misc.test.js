@@ -1,6 +1,5 @@
 'use strict';
 const { script, waitFor } = require('./helpers');
-process.env.FAKE_DURATION = '120'; // DJ skips clips under a minute
 const test = require('node:test');
 const assert = require('node:assert');
 const { createAudioResource, StreamType } = require('@discordjs/voice');
@@ -22,15 +21,15 @@ function djSetup(gid) {
   return { mixer, player, dj };
 }
 
-test('DJ songs keep a search query so a YouTube block can fall through', async () => {
+test('DJ picks are requests (artist - title); the player resolves the copy', async () => {
   const { player, dj } = djSetup('djq');
   dj.enabled = true;
   dj.mood = 'epic';
-  dj.pending = [{ artist: 'Tone', title: 'Alpha' }];
+  dj.pending = [{ asked: 'Tone - Alpha' }];
   await dj.refill({ urgent: true });
   const e = player.current?.entry || player.queue.items[0];
   assert.ok(e, 'DJ queued a song');
-  assert.match(e.query, /Tone - Alpha/);
+  assert.strictEqual(e.asked, 'Tone - Alpha');
   assert.strictEqual(e.via, 'dj');
   player.destroy();
 });
@@ -42,28 +41,27 @@ test('DJ starts music in a mood and keeps songs queued', async () => {
   assert.ok(await waitFor(() => player.current, 5000), 'DJ started a song');
   assert.ok(await waitFor(() => player.queue.count((e) => e.via === 'dj') >= 1, 5000), 'DJ queued more');
   assert.strictEqual(player.current.entry.via, 'dj');
+  dj.turnOff();
   player.destroy();
 });
 
-test('DJ memory: never re-picks something already played (by id or same song title)', async () => {
+test('DJ memory: never re-picks a song that already played, under any upload or wording', async () => {
   const gid = 'dj2';
-  store.addHistory(gid, { id: 'youtube:tone-alpha-audio-0', key: songKey('Tone - Alpha audio #0'), title: 'Tone - Alpha audio #0', via: 'dj' });
+  store.addHistory(gid, { id: 'youtube:abc', key: songKey('Tone - Alpha (Official Video)'), title: 'Tone - Alpha (Official Video)', channel: 'ToneVEVO', asked: 'Tone - Alpha', via: 'dj' });
   const { player, dj } = djSetup(gid);
-  dj.enabled = true;
-  dj.mood = 'x';
-  dj.pending = [{ artist: 'Tone', title: 'Alpha' }];
-  const t = await dj._resolve(dj.pending.shift());
-  assert.ok(!t || t.key !== 'youtube:tone-alpha-audio-0', 'already-played id is not picked again');
+  assert.ok(dj.rejectReason({ asked: 'Tone - Alpha' }));
+  assert.ok(dj.rejectReason({ asked: 'Alpha', track: { key: 'soundcloud:9', title: 'Alpha (2013 Remaster)', channel: 'Tone' } }));
+  assert.strictEqual(dj.rejectReason({ asked: 'Tone - Beta' }), null);
   player.destroy();
 });
 
 test('user can request the same song again on purpose', async () => {
   const gid = 'dj3';
-  store.addHistory(gid, { id: 'youtube:again-0', key: 'again', title: 'again #0', via: 'user' });
+  store.addHistory(gid, { id: 'soundcloud:sc-again-0', key: 'again', title: 'again #0', via: 'user' });
   const { player } = djSetup(gid);
   const r = await player.request('again');
   assert.ok(r.ok);
-  assert.strictEqual(r.entries[0].key, 'youtube:again-0');
+  assert.ok(await waitFor(() => player.current?.track?.key === 'soundcloud:sc-again-0', 8000));
   player.destroy();
 });
 
@@ -71,15 +69,12 @@ test('changing DJ mood drops queued DJ songs but keeps user songs', async () => 
   const { player, dj } = djSetup('dj4');
   dj.enabled = true;
   dj.mood = 'old';
-  player.queue.add([
-    { key: 'k1', title: 'dj song', via: 'dj', uid: 901 },
-    { key: 'k2', title: 'user song', via: 'user', uid: 902 },
-  ]);
-  player.current = { entry: { title: 'x' }, source: null, status: 'playing' }; // pretend something is on
+  player.queue.add([player.makeEntry({ asked: 'dj song', via: 'dj' }), player.makeEntry({ asked: 'user song', explicit: true })]);
+  player.current = { entry: { title: 'x', asked: 'x' }, source: null, status: 'playing' }; // pretend something is on
   script.json.push({ songs: [] });
   dj.turnOn('new mood');
   assert.deepStrictEqual(
-    player.queue.items.map((e) => e.title),
+    player.queue.items.map((e) => e.asked),
     ['user song'],
   );
   player.current = null;
@@ -92,11 +87,23 @@ test('DJ falls back to plain search when Grok fails', async () => {
   script.json.push(new Error('grok down'));
   dj.turnOn('fallback mood');
   assert.ok(await waitFor(() => player.current, 6000));
+  dj.turnOff();
+  player.destroy();
+});
+
+test('DJ state is saved so a restart picks it back up', () => {
+  const { player, dj } = djSetup('dj6');
+  script.json.push({ songs: [] });
+  dj.turnOn('late night');
+  assert.deepStrictEqual({ enabled: store.dj('dj6').enabled, mood: store.dj('dj6').mood }, { enabled: true, mood: 'late night' });
+  dj.turnOff();
+  assert.strictEqual(store.dj('dj6').enabled, false);
   player.destroy();
 });
 
 test('songKey collapses decorations', () => {
   assert.strictEqual(songKey('Daft Punk - One More Time (Official Video)'), songKey('Daft Punk - One More Time [HD]'));
+  assert.strictEqual(songKey('Please Come Home for Christmas (2013 Remaster)'), songKey('Please Come Home For Christmas'));
   assert.notStrictEqual(songKey('Song (Remix)'), songKey('Song'));
 });
 

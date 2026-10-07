@@ -1,11 +1,12 @@
 'use strict';
-// Finds tracks with yt-dlp. YouTube first, SoundCloud as a fallback.
+// Finds tracks with yt-dlp. Sources are tried in health order (see sources.js).
 // A track's identity is its source id (e.g. "youtube:dQw4w9WgXcQ"), never its title,
 // so two different uploads of the same song are two different tracks.
 const { spawn } = require('node:child_process');
 const { ytdlpSpawn, ytdlpBaseArgs } = require('../audio/binaries');
 const { config } = require('../config');
 const log = require('../log').logger('search');
+const { tokens } = require('./identity');
 
 function runYtdlp(args, timeoutMs = 25000) {
   return new Promise((resolve, reject) => {
@@ -72,15 +73,9 @@ function isUrl(q) {
   return /^https?:\/\//i.test(q.trim());
 }
 
-/** Normalised "what song is this" key. Only used by the DJ to avoid replaying the same set. */
+/** Normalised "what song is this" key (sorted meaningful words). Kept in history for the DJ. */
 function songKey(title) {
-  return String(title || '')
-    .toLowerCase()
-    .replace(/\(([^)]*)\)|\[([^\]]*)\]/g, (m) => (/(remix|live|acoustic|cover|version|edit)/.test(m) ? m : ' '))
-    .replace(/\b(official|music|video|audio|lyrics?|lyric video|hd|hq|4k|visualizer|m\/v|mv)\b/g, ' ')
-    .replace(/\b(ft|feat|featuring)\.?\b.*$/g, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  return [...tokens(title)].sort().join(' ');
 }
 
 function playable(t) {
@@ -89,43 +84,45 @@ function playable(t) {
   return true;
 }
 
+const PREFIX = { youtube: 'ytsearch', soundcloud: 'scsearch' };
+
+/** Search one source. */
+async function searchSource(source, query, { limit = 5 } = {}) {
+  const q = String(query || '').trim();
+  const prefix = PREFIX[source];
+  if (!q || !prefix || isUrl(q)) return [];
+  const n = source === 'soundcloud' ? Math.min(limit, 8) : limit;
+  const items = await runYtdlp(['--flat-playlist', '--dump-json', `${prefix}${n}:${q}`]);
+  return items.map(toTrack).filter(Boolean).filter(playable);
+}
+
 /**
- * Search for tracks. Returns an array of tracks (best first).
- * @param {string} query
- * @param {object} [opts] { limit }
+ * Search for tracks. URLs are looked up directly. Otherwise sources are searched in health order
+ * (a source that is refusing this machine is searched last), and the first source with results wins;
+ * the resolver searches the others later only if needed.
  */
 async function search(query, { limit = 5 } = {}) {
-  const q = query.trim();
+  const q = String(query || '').trim();
   if (!q) return [];
   if (isUrl(q)) {
     const items = await runYtdlp(['--flat-playlist', '--dump-json', '--no-playlist', '--playlist-end', '50', q], 45000);
     return items.map(toTrack).filter(Boolean).filter((t) => !t.isLive);
   }
-  let results = [];
-  try {
-    const items = await runYtdlp(['--flat-playlist', '--dump-json', `ytsearch${limit}:${q}`]);
-    results = items.map(toTrack).filter(Boolean);
-  } catch (e) {
-    log.warn(`YouTube search failed for "${q}": ${e.message}`);
+  const sources = require('./sources');
+  for (const src of sources.order()) {
+    try {
+      const found = await searchSource(src, q, { limit });
+      if (found.length) return found;
+    } catch (e) {
+      log.warn(`${src} search failed for "${q}": ${e.message}`);
+    }
   }
-  const good = results.filter(playable);
-  if (good.length) return good;
-  try {
-    const items = await runYtdlp(['--flat-playlist', '--dump-json', `scsearch${Math.min(limit, 3)}:${q}`]);
-    const sc = items.map(toTrack).filter(Boolean).filter(playable);
-    if (sc.length) return sc;
-  } catch (e) {
-    log.warn(`SoundCloud search failed for "${q}": ${e.message}`);
-  }
-  return results.filter((t) => !t.isLive);
+  return [];
 }
 
-/** SoundCloud only. Used when a YouTube result exists but the audio will not download. */
+/** SoundCloud only. */
 async function searchSoundCloud(query, { limit = 3 } = {}) {
-  const q = String(query || '').trim();
-  if (!q || isUrl(q)) return [];
-  const items = await runYtdlp(['--flat-playlist', '--dump-json', `scsearch${Math.min(limit, 3)}:${q}`]);
-  return items.map(toTrack).filter(Boolean).filter(playable);
+  return searchSource('soundcloud', query, { limit });
 }
 
-module.exports = { search, searchSoundCloud, songKey, toTrack, runYtdlp, isUrl, playable };
+module.exports = { search, searchSource, searchSoundCloud, songKey, toTrack, runYtdlp, isUrl, playable };
