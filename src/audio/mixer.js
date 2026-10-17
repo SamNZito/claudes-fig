@@ -44,6 +44,7 @@ class Mixer extends EventEmitter {
   setMusic(source) {
     const old = this.music;
     this.music = source || null;
+    if (old !== this.music) this.emit('musicChanged', source ? source.label : null);
     if (old && old !== source) old.destroy();
     if (source) {
       if (source.hasData) this.wake();

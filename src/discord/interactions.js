@@ -7,6 +7,7 @@ const personalities = require('../brain/personalities');
 const { CAPS, isAdmin, setRoles } = require('./permissions');
 const store = require('../store');
 const log = require('../log').logger('slash');
+const { conversation } = require('../log');
 
 // Commands whose result Fig also says out loud in the call.
 const SPOKEN = new Set(['say', 'look', 'factcheck', 'status']);
@@ -32,9 +33,15 @@ async function handleCommand(interaction, getSession) {
   const name = interaction.commandName;
   const o = interaction.options;
 
+  const flat = (opts) =>
+    (opts || [])
+      .map((o) => (o.options ? `${o.name} ${flat(o.options)}` : `${o.name}=${o.attachment ? o.attachment.url : o.user ? `@${o.user.username}` : o.role ? `@&${o.role.name}` : o.channel ? `#${o.channel.name}` : o.value}`))
+      .join(' ');
+  conversation('slash', member.displayName, `/${name} ${flat(interaction.options.data)}`.trim(), `#${interaction.channel?.name || interaction.channelId}`);
   if (SLOW.has(name)) await interaction.deferReply();
   const send = async (content, { ephemeral = false } = {}) => {
     const text = String(content || 'Done.').slice(0, 1990);
+    conversation('reply', `Fig → ${member.displayName}`, text, `/${name}${ephemeral ? ', only they see it' : ''}`);
     if (interaction.deferred || interaction.replied) return interaction.editReply({ content: text, allowedMentions: { parse: [] } });
     return interaction.reply({ content: text, allowedMentions: { parse: [] }, flags: ephemeral ? MessageFlags.Ephemeral : undefined });
   };

@@ -151,9 +151,16 @@ class Listener extends EventEmitter {
       if (this.stopped) return;
       const pcm = Buffer.concat(chunks);
       const durationMs = pcm.length / BYTES_PER_MS;
-      if (durationMs < config.minUtteranceMs) return;
+      if (durationMs < config.minUtteranceMs) {
+        log.debug(`ignored ${Math.round(durationMs)}ms from ${userId}: too short`);
+        return;
+      }
       const { rms } = pcmStats(pcm);
-      if (rms < MIN_RMS) return;
+      if (rms < MIN_RMS) {
+        log.debug(`ignored ${Math.round(durationMs)}ms from ${userId}: too quiet (rms ${Math.round(rms)})`);
+        return;
+      }
+      log.info(`utterance from ${userId}: ${Math.round(durationMs)}ms (rms ${Math.round(rms)}), sending to speech-to-text`);
       this.emit('utterance', { userId, wav: toWav16kMono(pcm), durationMs });
     };
     stream.once('end', finish);

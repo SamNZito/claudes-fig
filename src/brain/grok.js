@@ -16,6 +16,12 @@ class GrokError extends Error {
   }
 }
 
+function toolCallsSummary(msg) {
+  const calls = (msg.tool_calls || []).map((tc) => `${tc.function?.name}(${String(tc.function?.arguments || '').slice(0, 200)})`);
+  const text = typeof msg.content === 'string' ? msg.content : '';
+  return `${calls.length ? `tools=[${calls.join(', ')}] ` : ''}text="${text.replace(/\s+/g, ' ').slice(0, 300)}"`;
+}
+
 async function call(path, { method = 'POST', json, form, timeoutMs = 45000, raw = false } = {}) {
   const headers = { Authorization: `Bearer ${config.xaiKey}` };
   let body;
@@ -26,7 +32,9 @@ async function call(path, { method = 'POST', json, form, timeoutMs = 45000, raw 
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      const t0 = Date.now();
       const res = await fetch(`${config.xaiBase}${path}`, { method, headers, body, signal: AbortSignal.timeout(timeoutMs) });
+      log.info(`xAI ${method} ${path}${json?.model ? ` model=${json.model}` : ''} -> ${res.status} in ${Date.now() - t0}ms${attempt ? ` (retry ${attempt})` : ''}`);
       if (res.ok) {
         if (raw) return res;
         return await res.json();
@@ -41,6 +49,7 @@ async function call(path, { method = 'POST', json, form, timeoutMs = 45000, raw 
       throw err;
     } catch (e) {
       if (e instanceof GrokError) throw e;
+      log.warn(`xAI ${method} ${path} error: ${e.name}: ${e.message}`);
       lastErr = e;
       if (e.name === 'TimeoutError' || e.name === 'AbortError') break;
       await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
@@ -93,6 +102,7 @@ async function chat({ messages, tools, model = config.grokModel, maxTokens = 600
     }
     return { id: tc.id, name: tc.function?.name, args };
   });
+  log.info(`chat result: ${toolCallsSummary(msg)}`);
   const content = typeof msg.content === 'string' ? msg.content : Array.isArray(msg.content) ? msg.content.map((p) => p.text || '').join('') : '';
   return { content: content.trim(), toolCalls, raw: msg };
 }

@@ -25,6 +25,8 @@ function write(msg) {
 
 function note(msg) {
   write(msg);
+  // Mirrored into fig.log so one file has everything.
+  require('./log').logger('crash').warn(msg);
 }
 
 function beat() {

@@ -21,11 +21,15 @@ const HANG_MS = Number(process.env.FIG_HANG_SEC || 90) * 1000;
 const TICK_MS = Math.min(5000, Math.max(200, HANG_MS / 6));
 const FREEZE_MS = Number(process.env.FIG_FREEZE_SEC || 60) * 1000; // our timer firing this late = the machine was paused
 
+const WHO = `${require('node:os').hostname().split('.')[0]}:${process.pid}`;
 function note(msg) {
-  const line = `${new Date().toISOString()} [supervise pid=${process.pid}] ${msg}\n`;
+  const now = new Date().toISOString();
+  const line = `${now} [supervise pid=${process.pid}] ${msg}\n`;
   try {
     fs.mkdirSync(LOGS, { recursive: true });
     fs.appendFileSync(crashFile, line);
+    // Same event in the main log, so fig.log alone tells the whole story.
+    fs.appendFileSync(path.join(LOGS, 'fig.log'), `${now} INFO  ${WHO} [supervise] ${msg}\n`);
   } catch {
     /* ignore */
   }

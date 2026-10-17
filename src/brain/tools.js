@@ -76,6 +76,12 @@ const TOOLS = [
 const CHIME_TOOLS = TOOLS.filter((t) => t.function.name === 'stay_quiet');
 
 async function runTool(ctx, name, args = {}) {
+  const r = await runToolInner(ctx, name, args);
+  require('../log').logger('tool').info(`${name} done: ok=${r?.ok} say=${JSON.stringify(r?.say ?? null)}${r?.text ? ` text=${JSON.stringify(String(r.text).slice(0, 300))}` : ''}`);
+  return r;
+}
+
+async function runToolInner(ctx, name, args = {}) {
   const who = ctx.member?.displayName || ctx.member?.user?.username || '?';
   require('../log').logger('tool').info(`call ${name} by=${who} source=${ctx.source || '?'} args=${JSON.stringify(args)}`);
   switch (name) {

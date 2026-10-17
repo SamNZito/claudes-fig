@@ -24,6 +24,7 @@ const { allowed } = require('../discord/permissions');
 const store = require('../store');
 const { config } = require('../config');
 const log = require('../log').logger('session');
+const { conversation } = require('../log');
 const crash = require('../crashlog');
 const sources = require('../music/sources');
 
@@ -81,13 +82,23 @@ class GuildSession extends EventEmitter {
     this.audioPlayer = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause, maxMissedFrames: 250 } });
     this.audioPlayer.on('error', (e) => log.warn(`audio player error: ${e.message}`));
     this.audioPlayer.on('stateChange', (oldS, newS) => {
+      if (oldS.status !== newS.status) log.info(`audio player ${oldS.status} -> ${newS.status} (music: ${this.player?.current ? `${this.player.current.status} "${this.player.current.entry.asked}"` : 'none'})`);
       if (newS.status === AudioPlayerStatus.Idle && oldS.status !== AudioPlayerStatus.Idle && !this.mixer.idle) {
         // The resource died unexpectedly. Give the player a fresh one; the mixer state is untouched.
         setImmediate(() => this.transportOn());
       }
     });
-    this.mixer.on('active', () => this.transportOn());
-    this.mixer.on('idle', () => this.transportOff());
+    this.mixer.on('active', () => {
+      log.debug('mixer active');
+      this.transportOn();
+    });
+    this.mixer.on('idle', () => {
+      log.debug('mixer idle');
+      this.transportOff();
+    });
+    // Every time the mixer's music source changes. Two different songs alternating here = a bug in
+    // this copy; alternating songs with NO line here = another copy of Fig on the same token.
+    this.mixer.on('musicChanged', (label) => log.info(`mixer music -> ${label || 'nothing'}`));
     this.mixer.on('warn', (m) => log.warn(m));
 
     this.player.on('nowPlaying', (e) => this.onNowPlaying(e));
@@ -140,6 +151,7 @@ class GuildSession extends EventEmitter {
   }
 
   async join(channel, { rejoin = false } = {}) {
+    log.info(`join #${channel?.name} rejoin=${rejoin} current=${this.voiceChannel()?.name || 'none'} status=${this.connection?.state?.status || 'none'}`);
     if (this.standby) throw new Error('another copy of Fig owns the voice channel');
     // Every new call starts in normal mode (wake name required). A reconnect after a blip keeps the mode.
     if (!rejoin && !this.connection) this.startNewCall();
@@ -191,6 +203,9 @@ class GuildSession extends EventEmitter {
       crash.note(`voice connection error: ${e.message}`);
     });
     conn.on('stateChange', async (oldS, newS) => {
+      log.info(
+        `voice connection ${oldS.status} -> ${newS.status}${newS.reason !== undefined ? ` reason=${newS.reason}` : ''}${newS.closeCode !== undefined ? ` closeCode=${newS.closeCode}` : ''}${this.connection !== conn ? ' (old connection)' : ''}`,
+      );
       if (this.connection !== conn) return;
       if (newS.status === VoiceConnectionStatus.Ready) {
         this.rejoinAttempt = 0;
@@ -258,6 +273,7 @@ class GuildSession extends EventEmitter {
   }
 
   async leave({ byRequest = false, reason = '' } = {}) {
+    log.info(`leave voice byRequest=${byRequest} reason=${reason || '-'} channel=${this.voiceChannel()?.name || '-'}`);
     this.leaving = true;
     this.wantConnected = false;
     clearTimeout(this.rejoinTimer);
@@ -412,20 +428,33 @@ class GuildSession extends EventEmitter {
 
   /** Speak in the call (queued, in order). Resolves when finished or skipped. */
   speak(text) {
-    if (!this.connection) return Promise.resolve(false);
+    if (!this.connection) {
+      log.info(`not speaking (not in voice): ${text}`);
+      return Promise.resolve(false);
+    }
     const epoch = this.speechEpoch;
     const voice = this.settings().voice;
-    const synth = synthesize(text, { voice }).catch((e) => {
-      log.warn('TTS failed:', e.message);
-      return null;
-    });
+    const t0 = Date.now();
+    const synth = synthesize(text, { voice })
+      .then((clip) => {
+        log.info(`TTS ready in ${Date.now() - t0}ms voice=${voice}${clip ? ` ${Math.round(clip.buffered / 192)}ms of audio` : ' (nothing to say)'}`);
+        return clip;
+      })
+      .catch((e) => {
+        log.warn('TTS failed:', e.message);
+        return null;
+      });
     this.speechChain = this.speechChain.then(async () => {
       const clip = await synth;
       if (!clip || epoch !== this.speechEpoch) {
+        if (clip) log.info('speech dropped (cancelled before it played)');
         clip?.destroy();
         return false;
       }
-      return this.mixer.addVoice(clip);
+      conversation('said', this.settings().wakeName, text, `voice=${voice}`);
+      const done = await this.mixer.addVoice(clip);
+      log.debug(`speech ${done ? 'finished' : 'cut off'}`);
+      return done;
     });
     return this.speechChain;
   }
@@ -437,6 +466,7 @@ class GuildSession extends EventEmitter {
     const shown = forText(text);
     const name = this.settings().wakeName;
     if (reply) {
+      conversation('reply', `${name} → ${member?.displayName || '?'}`, shown);
       await reply(shown).catch((e) => log.warn('reply failed:', e.message));
     } else {
       const who = member ? (ping ? `<@${member.id}>` : `**${member.displayName}**`) : '';
@@ -460,12 +490,18 @@ class GuildSession extends EventEmitter {
   postText(content, { reply = null, pingUser = null } = {}) {
     if (!content) return;
     if (reply) {
-      reply(content).catch(() => {});
+      conversation('reply', this.settings().wakeName, content);
+      reply(content).catch((e) => log.warn('reply failed:', e.message));
       return;
     }
     const ch = this.textChannel();
-    if (!ch) return;
-    ch.send({ content: content.slice(0, 1900), allowedMentions: { users: pingUser ? [pingUser] : [] } }).catch((e) => log.debug('post failed:', e.message));
+    if (!ch) {
+      // Still goes in the logs, so what Fig answered is never lost.
+      conversation('unsent', this.settings().wakeName, content, 'no text channel Fig can post in');
+      return;
+    }
+    conversation('posted', this.settings().wakeName, content, `#${ch.name}`);
+    ch.send({ content: content.slice(0, 1900), allowedMentions: { users: pingUser ? [pingUser] : [] } }).catch((e) => log.warn(`post to #${ch.name} failed: ${e.message}`));
   }
 
   /** Short chat note for fast voice commands, so the chat shows what happened. */

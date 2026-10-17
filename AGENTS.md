@@ -18,6 +18,7 @@ You are setting up and running **Fig**, a Discord voice bot (Node.js). The code 
    - On Windows, run `deploy/install-windows-task.ps1` in an admin PowerShell.
 8. Set `HOME_VOICE_CHANNEL=zzzz` in `.env` so Fig always goes back to #zzzz.
 9. Read `PROBLEMS.md`. It explains each past failure and which log line proves it's fixed.
+10. When something goes wrong, read `logs/fig.log` (everything) and `logs/conversation.log` (what was said). README "Logs" explains the lines.
 
 ## Rules if you change anything
 
@@ -28,7 +29,7 @@ These are product requirements. Keep them true:
 - Skip blocks the SONG (`src/music/identity.js`), not just the upload. Don't weaken this to id-only matching.
 - One "blocked" probe marks the whole source down (`src/music/sources.js`). Don't loop over more uploads from a refused source.
 - Never start a second Discord client on the token. `supervise.js` and `index.js` both refuse to.
-- Logging stays `appendFileSync` (`src/log.js`).
+- Logging stays `appendFileSync` (`src/log.js`), and everything stays logged: what was heard and said (`conversation()`), every action (`traceAll` in `src/actions.js`), every Grok call, every song step. New code that does something logs it.
 - Skip must destroy the old source (processes and buffer) before the next song starts. Keep the Discord stream `highWaterMark` at 2 in `src/audio/mixer.js`.
 - User pause lives only in `MusicPlayer.paused` / `Mixer.musicPaused`. Speech, reconnects and DJ must never clear it.
 - Tracks are identified by `key` (source id), never by title.

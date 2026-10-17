@@ -39,7 +39,7 @@ class TrackSource extends EventEmitter {
     this.source = sourceOf(track);
     this.startSec = startSec;
     this.infoPath = infoPath;
-    this.pcm = new PcmSource({ label: track.title });
+    this.pcm = new PcmSource({ label: `${track.title} [${track.key || track.url}]${startSec ? ` from ${Math.round(startSec)}s` : ''}` });
     this.ytErr = '';
     this.ffErr = '';
     this.done = false;
@@ -62,7 +62,7 @@ class TrackSource extends EventEmitter {
     if (config.normalizeAudio) ffArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
     ffArgs.push('-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1');
 
-    log.debug(`download ${this.track.key || this.track.url} start=${this.startSec}s probe=${this.infoPath ? 'yes' : 'no'}`);
+    log.info(`download start "${this.track.title}" ${this.track.key || this.track.url} from=${this.startSec}s probe=${this.infoPath ? 'yes' : 'no'}`);
     try {
       this.yt = spawn(...ytdlpSpawn(ytArgs), { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
       this.ff = spawn(ffmpegPath(), ffArgs, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -86,6 +86,7 @@ class TrackSource extends EventEmitter {
     this.pcm.attach(this.ff.stdout);
     this.pcm.once('firstData', () => {
       clearTimeout(this.startTimer);
+      log.info(`first audio for "${this.track.title}" ${this.track.key}`);
       this.emit('ready');
     });
     this.pcm.once('started', () => this.emit('started'));
@@ -94,13 +95,14 @@ class TrackSource extends EventEmitter {
       else this.ff.once('close', () => this.finish());
     });
 
-    this.ff.on('close', (code) => {
+    this.ff.on('close', (code, signal) => {
       this.ffmpegExit = code;
+      log.info(`ffmpeg done "${this.track.title}" code=${code}${signal ? ` signal=${signal}` : ''} decoded=${Math.round(this.pcm.received / 192)}ms played=${Math.round(this.pcm.positionMs)}ms${this.killed ? ' (stopped by Fig)' : ''}`);
       if (this.pcm.received === 0) this.failFromStderr();
     });
-    this.yt.on('close', (code) => {
+    this.yt.on('close', (code, signal) => {
       this.ytExit = code;
-      if (code !== 0 && !this.killed) log.info(`yt-dlp exited ${code} for ${this.track.key}: ${lastLines(this.ytErr) || '(no message)'}`);
+      log.info(`yt-dlp done ${this.track.key} code=${code}${signal ? ` signal=${signal}` : ''}${this.killed ? ' (stopped by Fig)' : ''}${code && !this.killed ? `: ${lastLines(this.ytErr) || '(no message)'}` : ''}`);
     });
 
     this.startTimer = setTimeout(() => {

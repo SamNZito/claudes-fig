@@ -13,6 +13,7 @@ const { forText } = require('../audio/tts');
 const store = require('../store');
 const { config } = require('../config');
 const log = require('../log').logger('brain');
+const { conversation } = require('../log');
 
 // Things STT hallucinates on noise / music bleed.
 const JUNK = /^(you|thank you\.?|thanks for watching!?|bye\.?|uh+|um+|hm+|mm+|ah+|oh+|\.+|okay\.?)$/i;
@@ -85,14 +86,16 @@ class Brain {
     const st = this.settings();
     let text;
     try {
+      const t0 = Date.now();
       text = await grok.stt(wav, { keyterms: [st.wakeName] });
+      log.info(`STT ${Math.round(durationMs)}ms of speech from ${member.displayName} -> "${text}" in ${Date.now() - t0}ms`);
     } catch (e) {
       log.warn('STT failed:', e.message);
       return;
     }
     text = String(text || '').trim();
     if (!text || text.length < 2 || JUNK.test(text)) return;
-    log.info(`${member.displayName}: ${text}`);
+    conversation('heard', member.displayName, text, `voice, ${Math.round(durationMs)}ms`);
     s.memory.hear(userId, member.displayName, text);
     await this.route(member, text, { durationMs });
   }
@@ -121,7 +124,11 @@ class Brain {
 
     // normal: only when the wake name is said. conversation: no name needed.
     const addressed = named || mode === 'conversation';
-    if (!addressed) return;
+    if (!addressed) {
+      log.info(`not for Fig (mode=${mode}, wake name "${st.wakeName}" not said): "${text}"`);
+      return;
+    }
+    log.info(`for Fig: ${member.displayName} mode=${mode} named=${named} -> "${named ? stripped : text}"`);
     const cmdText = named ? stripped : norm(text);
     const fast = fastCommand(cmdText);
     if (fast) return this.runFast(member, fast, cmdText, text, { source });
@@ -218,6 +225,7 @@ class Brain {
     if (!chime && source === 'voice') s.mixer.holdDuck(1500);
     let result;
     try {
+      log.info(`asking Grok for ${member.displayName} (source=${source}, mode=${mode}, named=${named}): "${text}"`);
       result = await grok.chat({ messages, tools: chime ? CHIME_TOOLS : TOOLS, maxTokens: 400 });
     } catch (e) {
       log.warn('Grok chat failed:', e.message);
@@ -298,6 +306,7 @@ class Brain {
   /** Text entry point: /ask, or a message that mentions Fig. */
   async handleText(member, text, { reply, image } = {}) {
     const s = this.session;
+    conversation('typed', member.displayName, text || '(image)', image ? 'with image' : 'text');
     s.memory.hear(member.id, member.displayName, text);
     if (image) {
       const r = await actions.look(s.ctx(member, 'text'), { question: text || 'What do you see?', image });

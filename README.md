@@ -129,9 +129,34 @@ A skipped song is gone. No other upload of it, no DJ pick, and no queued duplica
 
 - **"SoundCloud only has previews or locked copies"**: that song isn't fully on SoundCloud. Try another version, or a remix.
 - **Downloads start failing everywhere**: update yt-dlp with `winget upgrade yt-dlp.yt-dlp` or `yt-dlp -U`.
-- **Fig doesn't hear anyone**: make sure it isn't server-deafened, check that `LISTEN=true`, and look for "STT failed" in the console. You need to say the wake name unless you're in conversation mode.
+- **Fig doesn't hear anyone**: make sure it isn't server-deafened, check that `LISTEN=true`, and look for "STT failed" in `logs/fig.log`. You need to say the wake name unless you're in conversation mode.
 - **Grok model errors**: `npm run doctor` lists the models your key can use. Set `GROK_MODEL` to one of them.
 - More detail: `LOG_LEVEL=debug`.
+
+## Logs
+
+Everything goes to files in `logs/`, written line by line so nothing is lost if Fig is killed:
+
+- `logs/fig.log`: everything. Every line has the time, level, `host:pid` (which copy of Fig wrote it) and a `[scope]`.
+- `logs/conversation.log`: only what was said: `HEARD` (speech, after transcription), `TYPED` (mentions), `SLASH` (slash commands), `SAID` (spoken by Fig), `POSTED` / `REPLY` (Fig's chat messages), `UNSENT` (an answer Fig had nowhere to post).
+- `logs/crash.log`: starts, exits, kills, freezes and gateway drops (also copied into fig.log).
+
+What fig.log covers, by scope:
+
+| Scope | What |
+|---|---|
+| `talk` | the same lines as conversation.log |
+| `brain` | each utterance: who, transcription time, whether it was for Fig and why (mode, wake name) |
+| `grok` | every xAI call (endpoint, model, status, time) and which tools Grok picked |
+| `tool` | every tool Grok used, with arguments and result |
+| `action` | every action (play, skip, pause, volume, dj, moderate…): who asked, from where, arguments, result, time taken |
+| `player`, `resolve`, `track`, `spotify`, `dj` | every song: request, lookup, copies tried, download start, first audio, end (`played=Xs of Ys`), skips and blocks |
+| `session` | voice connection changes, audio player state, `mixer music -> <song>` (what is actually being sent to Discord), TTS |
+| `index`, `instance`, `supervise`, `moderation`, `crash` | startup, which copy is running, voice states of Fig's own user, standby, restarts, moderation actions |
+
+Logs rotate at `FIG_LOG_MAX_MB` (50) and keep `FIG_LOG_KEEP` (5) old files.
+
+**Two songs alternating?** Search fig.log for `mixer music ->`. If one `host:pid` switches between two songs, it's a bug in that copy. If there are no such lines for the cut-in, or there are `FOREIGN` voice states or `STANDBY` lines, another copy of Fig is on the token (PROBLEMS.md §8).
 
 ## Layout
 

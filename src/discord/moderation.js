@@ -63,7 +63,15 @@ async function resolveMember(guild, name, voiceChannel) {
 /**
  * @returns {Promise<{ok:boolean, message:string}>}
  */
-async function moderate({ guild, actor, target, action, minutes = 5, reason = '' }) {
+async function moderate(args) {
+  const r = await doModerate(args);
+  require('../log')
+    .logger('moderation')
+    [r.ok ? 'info' : 'warn'](`${args.actor?.displayName || '?'} asked to ${args.action} ${args.target?.displayName || '?'}${args.action === 'timeout' ? ` for ${args.minutes || 5}m` : ''}: ${r.message}`);
+  return r;
+}
+
+async function doModerate({ guild, actor, target, action, minutes = 5, reason = '' }) {
   const spec = ACTIONS[action];
   if (!spec) return { ok: false, message: `I don't know how to ${action}.` };
   if (!actor?.permissions?.has(spec.perm)) return { ok: false, message: `You don't have permission to ${spec.label} people.` };

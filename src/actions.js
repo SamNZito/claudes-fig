@@ -420,35 +420,60 @@ function parseDuration(text) {
   return matched ? Math.round(total) : NaN;
 }
 
+// Every action is logged: who asked, from where (voice / slash / text), the arguments, the result and
+// how long it took. That is the "what is Fig doing" trail in logs/fig.log under [action].
+function slim(v, depth = 0) {
+  if (v == null || typeof v !== 'object') return v;
+  if (v.session && 'source' in v) return { by: nameOf(v.member), source: v.source };
+  if (v.user && v.displayName) return `@${v.displayName}`;
+  if (v.guild && v.name && v.type !== undefined) return `#${v.name}`;
+  if (Array.isArray(v)) return v.map((x) => slim(x, depth + 1));
+  if (depth > 2) return '…';
+  const out = {};
+  for (const [k, x] of Object.entries(v)) out[k] = slim(x, depth + 1);
+  return out;
+}
+
+const traced = require('./log').traceAll(
+  {
+    join,
+    leave,
+    play,
+    skip,
+    remove,
+    pause,
+    resume,
+    stop,
+    clear,
+    shuffle,
+    queue,
+    nowPlaying,
+    volume,
+    dj,
+    setMode,
+    setPersonality,
+    setVoice,
+    setName,
+    sayLine,
+    shutUp,
+    forget,
+    status,
+    timer,
+    webLookup,
+    factCheck,
+    look,
+    dropImage,
+    moderate,
+  },
+  'action',
+  {
+    describeArgs: (args) => args.map((a) => slim(a)),
+    describeResult: (r) => (r && typeof r === 'object' ? { ok: r.ok, say: r.say, text: r.text && r.text !== r.say ? String(r.text).slice(0, 300) : undefined } : r),
+  },
+);
+
 module.exports = {
-  join,
-  leave,
-  play,
-  skip,
-  remove,
-  pause,
-  resume,
-  stop,
-  clear,
-  shuffle,
-  queue,
-  nowPlaying,
-  volume,
-  dj,
-  setMode,
-  setPersonality,
-  setVoice,
-  setName,
-  sayLine,
-  shutUp,
-  forget,
-  status,
-  timer,
-  webLookup,
-  factCheck,
-  look,
-  dropImage,
-  moderate,
+  ...traced,
   parseDuration,
   humanDuration,
   summarize,

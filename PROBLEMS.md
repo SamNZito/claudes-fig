@@ -2,7 +2,7 @@
 
 Fig is the Discord voice bot in this repo (Jit#3217, guild Super Chill, channel #zzzz). It runs as one process: `node scripts/supervise.js`, which runs `src/index.js`. Do not run a second Discord client on the same token. The old website worker was removed for that reason, and Fig now refuses to start a second copy of itself.
 
-Logs while it runs are `logs/fig.log` (activity, rotated at 25 MB) and `logs/crash.log` (starts, kills, freezes, voice events). Neither is committed, and neither is `.env`. Copy `.env.example` to make one.
+Logs while it runs are `logs/fig.log` (everything), `logs/conversation.log` (only what was said, by people and by Fig) and `logs/crash.log` (starts, kills, freezes, voice events). README "Logs" explains every line. Neither is committed, and neither is `.env`. Copy `.env.example` to make one.
 
 Every item below has a regression test in `test/playback.test.js` or `test/supervise.test.js`. Run `npm test`.
 
@@ -70,7 +70,16 @@ Volume was never the cause. `setVolume` only changes the mixer gain, and its log
 
 ## 6. Logging
 
-Unchanged on purpose: `appendFileSync` to `logs/fig.log`. Added rotation at 25 MB (`fig.log.1`) and at 5 MB for `crash.log`.
+Still `appendFileSync` to `logs/fig.log`, never console only. Since Oct 16, everything is logged:
+
+- What people said or typed, what Fig said, posted or replied (`logs/conversation.log` as well). An answer with no channel to post in is still logged as `UNSENT`.
+- Whether each utterance was for Fig, and why not (mode, wake name).
+- Every Grok call, every tool and action with who asked, arguments, result and time taken.
+- Every song step, and `mixer music -> <song>` each time the audio actually going to Discord changes.
+- Voice connection and voice state changes, with whether a voice state belongs to this copy or another one.
+- Every line carries `host:pid`, so two copies show up as two tags.
+
+Rotation: 50 MB × 5 files (`FIG_LOG_MAX_MB`, `FIG_LOG_KEEP`); `crash.log` at 5 MB. Opus crashes are still logged once, not per packet. Test: `test/logging.test.js`.
 
 ## 7. Modes
 

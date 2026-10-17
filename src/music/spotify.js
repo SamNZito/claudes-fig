@@ -24,6 +24,7 @@ async function getToken() {
     body: 'grant_type=client_credentials',
     signal: AbortSignal.timeout(15000),
   });
+  log.info(`token request -> ${res.status}`);
   if (!res.ok) throw new Error(`Spotify login failed (${res.status}): check SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET`);
   const data = await res.json();
   token = { value: data.access_token, expiresAt: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
@@ -32,10 +33,12 @@ async function getToken() {
 
 async function api(path) {
   for (let attempt = 0; attempt < 2; attempt++) {
+    const t0 = Date.now();
     const res = await fetch(`https://api.spotify.com/v1${path}`, {
       headers: { Authorization: `Bearer ${await getToken()}` },
       signal: AbortSignal.timeout(15000),
     });
+    log.info(`GET ${path} -> ${res.status} in ${Date.now() - t0}ms`);
     if (res.status === 401 && attempt === 0) {
       token = null;
       continue;

@@ -55,6 +55,7 @@ const STANDBY_EXIT = 64; // supervise.js: do not restart
       try {
         fs.mkdirSync(path.join(__dirname, '..', 'logs'), { recursive: true });
         fs.appendFileSync(path.join(__dirname, '..', 'logs', 'crash.log'), `${new Date().toISOString()} pid=${process.pid} ${msg}\n`);
+        require('./log').logger('instance').error(msg);
       } catch {
         /* ignore */
       }
@@ -168,7 +169,11 @@ function homeChannel(guild) {
 // The pid lock only stops a second copy on the same machine/folder. A copy running somewhere else on
 // the same token shows up as our bot user's voice state with a gateway session that isn't ours.
 const guard = new InstanceGuard();
-client.on(Events.Raw, (p) => guard.onRaw(p));
+client.on(Events.Raw, (p) => {
+  guard.onRaw(p);
+  if (p && p.t === 'READY') log.info(`gateway READY: session ${p.d?.session_id} (${instance.describe()})`);
+  if (p && p.t === 'RESUMED') log.info(`gateway RESUMED: session ${guard.current}`);
+});
 
 function enterStandby(guild, vs, { announceAfterMs = 0 } = {}) {
   const s = getSession(guild);
@@ -249,6 +254,7 @@ async function autoJoinBusiest(guild) {
 
 client.once(Events.ClientReady, async (c) => {
   clearTimeout(loginTimer);
+  log.info(`ready in ${c.guilds.cache.size} server(s): ${c.guilds.cache.map((g) => g.name).join(', ')}`);
   log.info(`logged in as ${c.user.tag}`);
   crash.note(`logged in as ${c.user.tag}`);
   log.info(`voice dependencies:\n${generateDependencyReport()}`);
@@ -299,6 +305,18 @@ client.on(Events.InteractionCreate, (i) => {
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
   const guild = newState.guild;
   if (!guildAllowed(guild)) return;
+  {
+    // Log every voice change in the server, including Fig's own (with which gateway session owns it).
+    const who = newState.member?.displayName || newState.id;
+    const from = oldState.channel?.name || oldState.channelId || '-';
+    const to = newState.channel?.name || newState.channelId || '-';
+    const flags = ['serverMute', 'serverDeaf', 'selfMute', 'selfDeaf', 'streaming', 'selfVideo']
+      .filter((f) => oldState[f] !== newState[f])
+      .map((f) => `${f}=${newState[f]}`);
+    const mine = newState.id === client.user.id;
+    const sess = mine ? ` session=${newState.sessionId || '-'} ${guard.isForeign(newState) ? 'FOREIGN (another copy of Fig)' : 'ours'}` : '';
+    log.info(`voice state ${mine ? 'FIG' : who}: #${from} -> #${to}${flags.length ? ` ${flags.join(' ')}` : ''}${sess}`);
+  }
   const s = getSession(guild);
 
   // Fig's own voice state.
@@ -422,7 +440,6 @@ client.on(Events.Invalidated, () => crash.note('discord session invalidated'));
 let opusCrashes = 0;
 let opusWindow = 0;
 process.on('unhandledRejection', (e) => {
-  log.error('unhandled rejection:', e?.stack || e);
   crash.note(`unhandled rejection: ${e?.stack || e}`);
 });
 process.on('uncaughtException', (e) => {
@@ -435,17 +452,14 @@ process.on('uncaughtException', (e) => {
     }
     opusCrashes++;
     if (opusCrashes === 1) {
-      log.error('opus crashed (memory access). Not logging every repeat.');
-      crash.note(`opus memory access crash: ${e?.stack || msg}`);
+      crash.note(`opus memory access crash (not logging every repeat): ${e?.stack || msg}`);
     }
     if (opusCrashes === 40) {
-      log.error('opus kept crashing; exiting so the supervisor can restart clean');
       crash.note('opus kept crashing; exiting for a clean restart');
       process.exit(1);
     }
     return;
   }
-  log.error('uncaught exception:', e?.stack || e);
   crash.note(`uncaught exception: ${e?.stack || e}`);
 });
 
