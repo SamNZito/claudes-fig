@@ -73,3 +73,23 @@ test('slash commands run end to end', async () => {
   s.connection = null;
   s.destroy();
 });
+
+test('a command another copy of Fig already answered is reported as a second copy', async () => {
+  const guild = fakeGuild('slash-dupe');
+  const alice = fakeMember(guild, 'alice', 'Alice', { admin: true });
+  const s = new GuildSession({}, guild);
+  const posted = [];
+  s.postText = (t) => posted.push(t);
+  const { i } = fakeInteraction(guild, alice, 'queue');
+  i.reply = async () => {
+    const e = new Error('Interaction has already been acknowledged.');
+    e.code = 40060;
+    throw e;
+  };
+  await onInteraction(i, () => s);
+  assert.equal(posted.length, 1);
+  assert.match(posted[0], /Another copy of Fig answered \*\*\/queue\*\*/);
+  const fs = require('node:fs');
+  const { ACTIVITY } = require('../src/log');
+  assert.match(fs.readFileSync(ACTIVITY, 'utf8'), /ANOTHER COPY: \/queue was already answered/);
+});

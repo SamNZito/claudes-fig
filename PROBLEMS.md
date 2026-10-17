@@ -95,6 +95,12 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 - **Another machine.** Every voice state says which gateway session owns it. When Fig sees its own bot user in voice under a session that isn't its own, another copy has the channel. This copy steps aside: it drops its connection without sending "leave", which would kick the other copy out. It stops rejoining and stays silent, so it doesn't answer commands or mentions. It posts once in chat: "Another copy of Fig is running on this bot token… This copy (host, pid, code version) is stepping aside." When the other copy leaves voice, this copy becomes active again.
 - `/status` shows "This copy: host pid code-version", so you can tell which copy is answering.
 
+- **Any machine, no voice needed.** When a slash command fails with "already acknowledged", another program on this token answered it first. Fig logs `ANOTHER COPY:` and says so in chat (at most every 10 minutes).
+
+**Oct 17, 02:15-02:17, proof from the log.** Let Go was skipped and its download killed (`dead id=1 … live=0`). Christmas started and the mixer reported Christmas every 5 seconds through 02:18. Let Go was still heard at 02:17. The audio came from a process that wasn't this one. That process had its own queue and its own log file, which is why fig.log never showed it.
+
+**The sure fix: reset the bot token.** Discord Developer Portal → the app → Bot → Reset Token. Put the new token only in the `.env` of the one copy that should run. Every other copy, wherever it is, is logged out for good.
+
 **If you see the "another copy" message:** find and stop the other copy. On the sandbox: `ps aux | grep -E "node .*(supervise|index|fig-worker)" | grep -v grep`. Also check for an old website deployment that still has the bot token.
 
 ## 9. A queued song disappeared when a different song was skipped (Oct 16)

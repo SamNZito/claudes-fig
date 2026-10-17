@@ -200,12 +200,27 @@ async function handleCommand(interaction, getSession) {
   if (r.say && SPOKEN.has(name) && session.connection) session.speak(r.say);
 }
 
+let lastDupeWarning = 0;
+
 async function onInteraction(interaction, getSession) {
   try {
     if (interaction.isAutocomplete()) return await handleAutocomplete(interaction);
     if (!interaction.isChatInputCommand()) return;
     await handleCommand(interaction, getSession);
   } catch (e) {
+    if (e?.code === 40060) {
+      // "Interaction has already been acknowledged": this copy never answered it, so another
+      // program logged in with this bot token answered first. That is the copy that cuts into songs.
+      const msg = `ANOTHER COPY: /${interaction.commandName} was already answered by another program using this bot token. ${require('../util/instance').describe()}`;
+      log.error(msg);
+      require('../crashlog').note(msg);
+      if (Date.now() - lastDupeWarning < 10 * 60 * 1000) return;
+      lastDupeWarning = Date.now();
+      getSession(interaction.guild)?.postText?.(
+        `Another copy of Fig answered **/${interaction.commandName}** before me. Two copies on one bot token fight over voice and make old songs cut in. Stop the other one, or reset the bot token in the Discord Developer Portal and put the new one only in this copy's .env.`,
+      );
+      return;
+    }
     log.error(`command /${interaction.commandName} failed:`, e);
     try {
       const msg = { content: 'Something went wrong with that command.', flags: MessageFlags.Ephemeral };
