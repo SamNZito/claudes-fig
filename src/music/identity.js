@@ -27,6 +27,7 @@ function tokens(text) {
   const out = new Set();
   for (const w of s.split(/[^a-z0-9]+/)) {
     if (!w || w.length < 2) continue;
+    if (/^\d{1,2}$/.test(w)) continue; // track numbers like "11/13" or "#2" don't identify a song
     if (NOISE.has(w)) continue;
     out.add(w);
   }
@@ -50,7 +51,8 @@ function trackTokens(t) {
 
 /**
  * How much of the smaller description is in the larger one (0..1).
- * Single-word titles must match exactly, so "Dreams" never equals "Sweet Dreams".
+ * Descriptions of one or two words must match exactly, so "Dreams" never equals "Sweet Dreams" and
+ * "Hatsune Miku" never equals "Anamanaguchi - Miku (feat. Hatsune Miku)".
  */
 function containment(a, b) {
   const A = trackTokens(a);
@@ -59,7 +61,9 @@ function containment(a, b) {
   let inter = 0;
   for (const w of A) if (B.has(w)) inter++;
   const small = Math.min(A.size, B.size);
-  if (small === 1) return A.size === B.size && inter === 1 ? 1 : 0;
+  // One or two words ("Dreams", "Hatsune Miku") are too vague to stand for a song: they must match exactly.
+  // Otherwise "Hatsune Miku" would equal every song that features Hatsune Miku.
+  if (small <= 2) return A.size === B.size && inter === A.size ? 1 : 0;
   return inter / small;
 }
 

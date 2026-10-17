@@ -140,11 +140,18 @@ class MusicPlayer extends EventEmitter {
     this._recordHistory(cur, reason);
     let dropped = 0;
     if (block) {
+      const gone = [];
       dropped = this.queue.removeWhere((q) => {
-        const hit = Boolean(this._skipReason(q));
-        if (hit) q.cancelled = true;
+        // Someone's own request is only dropped if it is clearly the same song (same upload, or the
+        // same title), never because it shares an artist name with the skipped one.
+        const hit = Boolean(this._skipReason(q, { strict: q.explicit }));
+        if (hit) {
+          q.cancelled = true;
+          gone.push(q);
+        }
         return hit;
       });
+      if (gone.length) this.emit('dupesDropped', e, gone);
     }
     log.info(
       `skip reason=${reason} asked="${e.asked}" playing="${cur.track?.title || '-'}" key=${cur.track?.key || e.key} via=${e.via} ` +
@@ -243,16 +250,25 @@ class MusicPlayer extends EventEmitter {
   }
 
   /** Why this entry or track must not play (it was skipped), or null. */
-  _skipReason(x) {
+  _skipReason(x, { strict = false } = {}) {
     if (!x) return null;
     const isEntry = Boolean(x.uid);
+    const blocks = store.skipped(this.guildId);
+    if (!blocks.length) return null;
+    const keys = [x.key, isEntry ? x.resolved?.track?.key : null, isEntry && x.meta?.spotifyId ? `spotify:${x.meta.spotifyId}` : null].filter(Boolean);
+    for (const b of blocks) if (keys.some((k) => b.keys.includes(k))) return `skipped earlier ("${b.label}")`;
+
+    if (strict) {
+      // For something a person asked for: only block it if it is plainly the skipped song by TITLE.
+      // Never because it shares an artist/uploader name, or loose words someone typed, with it.
+      const titles = (isEntry ? [x.meta?.title, x.resolved?.track?.title] : [x.title]).filter(Boolean);
+      for (const b of blocks) for (const t of titles) for (const bt of b.titles) if (sameSong(t, bt.title)) return `skipped earlier ("${b.label}")`;
+      return null;
+    }
     const texts = isEntry
       ? [x.asked, x.meta ? { title: x.meta.title, channel: x.meta.artists.join(' ') } : null, x.resolved?.track ? x.resolved.track : null].filter(Boolean)
       : [x];
-    for (const b of store.skipped(this.guildId)) {
-      if (x.key && b.keys.includes(x.key)) return `skipped earlier ("${b.label}")`;
-      if (isEntry && x.resolved?.track?.key && b.keys.includes(x.resolved.track.key)) return `skipped earlier ("${b.label}")`;
-      if (isEntry && x.meta?.spotifyId && b.keys.includes(`spotify:${x.meta.spotifyId}`)) return `skipped earlier ("${b.label}")`;
+    for (const b of blocks) {
       for (const t of texts) {
         for (const bt of b.titles) if (sameSong(t, bt)) return `skipped earlier ("${b.label}")`;
         for (const ba of b.asks) if (sameSong(t, ba)) return `skipped earlier ("${b.label}")`;
@@ -293,7 +309,7 @@ class MusicPlayer extends EventEmitter {
 
   /** Copy-level filter used while resolving. */
   _candidateBlocked(entry, track) {
-    const skip = this._skipReason(track);
+    const skip = this._skipReason(track, { strict: entry.explicit });
     if (skip) return skip;
     if (entry.via === 'dj' && this.playedRecently(track)) return 'the DJ already played it';
     return null;
@@ -360,7 +376,7 @@ class MusicPlayer extends EventEmitter {
       for (;;) {
         entry = this.queue.shift();
         if (entry) {
-          const blocked = this._skipReason(entry);
+          const blocked = this._skipReason(entry, { strict: entry.explicit });
           if (blocked || entry.cancelled) {
             log.info(`refuse "${entry.asked}" via=${entry.via}: ${blocked || 'cancelled'}`);
             entry.cancelled = true;

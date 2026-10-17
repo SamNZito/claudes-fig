@@ -76,9 +76,31 @@ Unchanged on purpose: `appendFileSync` to `logs/fig.log`. Added rotation at 25 M
 
 There are only two modes. In `normal`, Fig needs its wake name every time: no follow-up window, and no unnamed "skip this song". In `conversation`, no name is needed. Every new call, and every restart, starts in normal. Old saved modes (quiet, active, chaos) are read as normal.
 
+## 8. Old songs cut into the current song for 5-10 seconds, then it goes back (Oct 16)
+
+**Cause.** Two copies of Fig were running on the same bot token. Discord only lets a bot user be in voice once, so the copies took the channel from each other in turns. Each rejoin played a few seconds of whatever *that* copy had, which is why old songs cut in. Fig's rejoin delays are 2, 5 and 10 seconds, which matches the 5-10 second cut-ins. In a single copy, a skipped song can't start again: the regression test replays the whole Oct 16 session and checks that no old song is ever started.
+
+**Fix.**
+
+- **Same machine.** Fig now takes a lock per bot token in the system temp folder, not just per folder. A second copy, even from another checkout, refuses to start: it exits with code 64, and the supervisor does not restart it.
+- **Another machine.** Every voice state says which gateway session owns it. When Fig sees its own bot user in voice under a session that isn't its own, another copy has the channel. This copy steps aside: it drops its connection without sending "leave", which would kick the other copy out. It stops rejoining and stays silent, so it doesn't answer commands or mentions. It posts once in chat: "Another copy of Fig is running on this bot token… This copy (host, pid, code version) is stepping aside." When the other copy leaves voice, this copy becomes active again.
+- `/status` shows "This copy: host pid code-version", so you can tell which copy is answering.
+
+**If you see the "another copy" message:** find and stop the other copy. On the sandbox: `ps aux | grep -E "node .*(supervise|index|fig-worker)" | grep -v grep`. Also check for an old website deployment that still has the bot token.
+
+## 9. A queued song disappeared when a different song was skipped (Oct 16)
+
+**Cause.** "Anamanaguchi featuring Hatsune Miku" was queued while "Hatsune Miku Miku" played. Skipping the second song also dropped the first from the queue, because the skip memory matched the two-word request "Hatsune Miku" against anything featuring Hatsune Miku. That's why it had to be asked for twice.
+
+**Fix.**
+
+- Descriptions of one or two words must now match exactly. Track numbers like "11/13" no longer count.
+- Songs someone asked for are only dropped or blocked when they are plainly the skipped song: the same upload, or the same title. Sharing an artist or uploader no longer counts, and neither do loose typed words.
+- When a skip does remove a queued duplicate, Fig says so in chat.
+
 ## Already decided (still true)
 
-- One bot, one token. A second copy refuses to start.
+- One bot, one token. A second copy refuses to start, and a copy on another machine makes this one step aside.
 - Voice play requests queue. They never replace the current song.
 - No YouTube. SoundCloud is the audio source and Spotify is the lookup.
 - Two modes. Normal requires the wake name.

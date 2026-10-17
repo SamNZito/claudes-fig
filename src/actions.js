@@ -275,6 +275,7 @@ function status(ctx) {
     `DJ: ${s.dj.enabled ? `on (${s.dj.mood})` : 'off'}`,
     `Mode: ${st.mode}; name: ${st.wakeName}; personality: ${p.label}; voice: ${st.voice}`,
     `Music sources: ${require('./music/sources').summary().join('; ')}`,
+    `This copy: ${require('./util/instance').describe()}, up ${require('./util/instance').uptime()}`,
     `Listening: ${s.listener ? 'yes' : 'no'}${s.memory.heldImage() ? '; holding an image' : ''}${s.timers.size ? `; ${s.timers.size} timer(s)` : ''}`,
   ];
   const spoken = `${ch ? `I'm in ${ch.name}` : "I'm not in a call"}, ${summarize(s).replace(/^./, (c) => c.toLowerCase())}${s.dj.enabled ? ` DJ is on, mood ${s.dj.mood}.` : ''} ${cap(st.mode)} mode.`;

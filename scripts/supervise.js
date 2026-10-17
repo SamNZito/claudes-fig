@@ -96,6 +96,12 @@ function start() {
       releasePid();
       process.exit(0);
     }
+    if (code === 64) {
+      // Fig found another copy of itself running on the same bot token and stepped aside.
+      note('Fig exited because another copy is already running on this bot token. Not restarting.');
+      releasePid();
+      process.exit(0);
+    }
     if (!killReason && code === 1 && Date.now() - lastStart < 5000) {
       note(`child died during startup code=${code}. Check .env / npm run doctor. Retrying in 60s.`);
       scheduleStart(60000);

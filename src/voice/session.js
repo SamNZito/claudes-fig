@@ -92,6 +92,9 @@ class GuildSession extends EventEmitter {
 
     this.player.on('nowPlaying', (e) => this.onNowPlaying(e));
     this.player.on('trackFailed', (e, reason) => this.onTrackFailed(e, reason));
+    this.player.on('dupesDropped', (skipped, gone) =>
+      this.postText(`Also took ${gone.map((g) => `**${g.asked || g.title}**`).join(', ')} out of the queue (same song as the one you skipped).`),
+    );
     this.player.on('trackCut', (e, reason) => this.postText(`**${e.asked || e.title}** got cut off (${reason}). Moving on.`));
     this.onSourceDownBound = (src, reason) => this.onSourceDown(src, reason);
     sources.events.on('down', this.onSourceDownBound);
@@ -137,6 +140,7 @@ class GuildSession extends EventEmitter {
   }
 
   async join(channel, { rejoin = false } = {}) {
+    if (this.standby) throw new Error('another copy of Fig owns the voice channel');
     // Every new call starts in normal mode (wake name required). A reconnect after a blip keeps the mode.
     if (!rejoin && !this.connection) this.startNewCall();
     this.wantConnected = true;
@@ -222,6 +226,7 @@ class GuildSession extends EventEmitter {
 
   scheduleRejoin() {
     clearTimeout(this.rejoinTimer);
+    if (this.standby) return;
     // Fast retries first, then every 5 minutes forever: a network outage must not leave Fig out for good.
     const delay = this.rejoinAttempt < REJOIN_DELAYS.length ? REJOIN_DELAYS[this.rejoinAttempt] : 5 * 60 * 1000;
     this.rejoinAttempt++;
@@ -267,6 +272,41 @@ class GuildSession extends EventEmitter {
     if (conn && conn.state.status !== VoiceConnectionStatus.Destroyed) conn.destroy();
     if (reason) log.info(`left voice: ${reason}`);
     this.leaving = false;
+  }
+
+  /**
+   * Another copy of Fig (same bot token) owns the voice channel. Step aside completely: drop our
+   * connection WITHOUT telling Discord to leave (that would kick the other copy out, and the two
+   * would keep taking the channel from each other, each playing a few seconds of its own music).
+   */
+  standBy() {
+    if (this.standby) return;
+    this.standby = true;
+    this.wantConnected = false;
+    clearTimeout(this.rejoinTimer);
+    clearTimeout(this.emptyTimer);
+    this.emptyTimer = null;
+    this.stopListening();
+    this.mixer.stopVoice();
+    const savedDj = store.dj(this.guild.id);
+    this.player.stop();
+    store.setDj(this.guild.id, savedDj); // keep the DJ setting for when this copy is active again
+    const conn = this.connection;
+    this.connection = null;
+    if (conn && conn.state.status !== VoiceConnectionStatus.Destroyed) {
+      try {
+        conn.destroy(false); // false = don't send a "leave voice" for our bot user
+      } catch {
+        /* ignore */
+      }
+    }
+    log.warn('standing by: another copy of Fig owns the voice channel');
+  }
+
+  leaveStandby() {
+    if (!this.standby) return;
+    this.standby = false;
+    log.info('the other copy of Fig left voice; this copy is active again');
   }
 
   /**

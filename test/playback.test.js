@@ -335,3 +335,86 @@ test('missing yt-dlp is reported once as a setup problem, not walked through eve
   process.env.YTDLP_PATH = prev;
   player.destroy();
 });
+
+// ---------------------------------------------------------------- Oct 16 report: queued song vanished on skip
+
+test('skipping one Hatsune Miku song does not drop a different queued song that features Hatsune Miku', async () => {
+  const { mixer, player, events } = setup('p-miku');
+  const popipo = player.makeEntry({ asked: 'Hatsune Miku Miku', candidates: [track('tone-popipo', 'Hatsune Miku PoPiPo Project Diva Dreamy Theatre (HD)')], explicit: true });
+  popipo.candidates[0].channel = 'HATSUNE_MIKU';
+  const ana = player.makeEntry({ asked: 'Anamanaguchi featuring Hatsune Miku', candidates: [track('noise-ana', 'Miku (feat. Hatsune Miku) Anamanaguchi')], explicit: true });
+  player.enqueue([popipo]);
+  assert.ok(await waitFor(() => mixer.music?.hasData, 10000));
+  player.enqueue([ana]);
+  assert.strictEqual(player.queue.length, 1);
+  player.skip();
+  assert.ok(await waitFor(() => player.current?.entry === ana, 8000), 'the Anamanaguchi request plays next');
+  assert.ok(!events.failed.length);
+  player.destroy();
+});
+
+test('identity: a two-word description only matches exactly', () => {
+  const { sameSong } = require('../src/music/identity');
+  assert.ok(!sameSong('Anamanaguchi featuring Hatsune Miku', 'Hatsune Miku Miku'));
+  assert.ok(!sameSong({ title: 'Miku (feat. Hatsune Miku) Anamanaguchi', channel: 'Poncho' }, 'Hatsune Miku'));
+  assert.ok(sameSong({ title: 'Till I Collapse', channel: 'Eminem' }, { title: 'Till I Collapse (feat. Nate Dogg)', channel: 'Eminem' }));
+});
+
+test('replay of the Oct 16 session: after skips/stop, no old song ever starts again or reaches the mixer', async () => {
+  const { TrackSource } = require('../src/audio/trackSource');
+  const starts = [];
+  const origStart = TrackSource.prototype.start;
+  TrackSource.prototype.start = function () {
+    starts.push({ key: this.track.key, at: Date.now() });
+    return origStart.call(this);
+  };
+  try {
+    const { mixer, player } = setup('p-replay');
+    const dj = new DJ({ guildId: 'p-replay', player });
+    script.json.push({ songs: [{ artist: 'Tone', title: 'Wet Hands' }, { artist: 'Tone', title: 'Saturday Morning' }, { artist: 'Tone', title: 'September' }] });
+    const keyNow = () => player.current?.track?.key;
+    const playing = async () => {
+      assert.ok(await waitFor(() => player.current?.status === 'playing' || (mixer.music?.hasData && player.current?.source), 10000));
+      await pull(mixer, 10);
+    };
+    const killed = new Set();
+    const skip = () => {
+      if (keyNow()) killed.add(keyNow());
+      player.skip();
+    };
+    dj.turnOn('chill');
+    await playing();
+    skip();
+    await playing();
+    skip();
+    await playing();
+    if (keyNow()) killed.add(keyNow());
+    player.stop();
+    await player.request('hatsune miku miku');
+    await playing();
+    await player.request('anamanaguchi featuring hatsune miku');
+    skip();
+    await player.request('peanut butter jelly time');
+    await playing();
+    skip();
+    await playing();
+    const finalKey = keyNow();
+    const mark = Date.now();
+    // Let it run: pull ~4 s of audio, then check nothing old started since the last skip.
+    for (let i = 0; i < 20; i++) {
+      await pull(mixer, 10);
+      await sleep(20);
+    }
+    const late = starts.filter((s) => s.at >= mark);
+    for (const s of late) assert.ok(!killed.has(s.key), `old song ${s.key} was started again`);
+    for (const s of starts) {
+      // every start of a killed key happened before it was killed... i.e. each killed key started exactly once
+      assert.ok(starts.filter((x) => x.key === s.key).length === 1 || !killed.has(s.key), `${s.key} started more than once`);
+    }
+    assert.ok(!killed.has(finalKey));
+    dj.turnOff();
+    player.destroy();
+  } finally {
+    TrackSource.prototype.start = origStart;
+  }
+});

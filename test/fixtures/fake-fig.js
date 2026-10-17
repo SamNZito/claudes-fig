@@ -8,3 +8,4 @@ beat();
 const t = setInterval(beat, 100);
 if (mode === 'hang') setTimeout(() => { clearInterval(t); for (;;) {} }, 300);
 if (mode === 'exit') setTimeout(() => process.exit(3), 300);
+if (mode === 'dup') setTimeout(() => process.exit(64), 100);

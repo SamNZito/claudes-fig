@@ -9,52 +9,80 @@ const { onInteraction } = require('./discord/interactions');
 const store = require('./store');
 const log = require('./log').logger('fig');
 const crash = require('./crashlog');
+const { InstanceGuard } = require('./discord/instanceGuard');
+const instance = require('./util/instance');
 
-// ---- one Fig per machine. A second client on the same token kicks the first out of voice. ----
+// ---- one Fig per token on this machine ----
+// Two clients on one bot token fight over the voice channel (old songs cut into the current one).
+// The lock is per TOKEN in the system temp folder, so a second checkout in another folder can't start
+// a second copy either. (Copies on OTHER machines are caught later by the voice-session check.)
+const STANDBY_EXIT = 64; // supervise.js: do not restart
 {
   const fs = require('node:fs');
+  const os = require('node:os');
   const path = require('node:path');
-  const pidFile = path.join(__dirname, '..', 'logs', 'fig.pid');
-  try {
-    const old = Number(String(fs.readFileSync(pidFile, 'utf8')).trim());
-    if (old && old !== process.pid) {
-      let running = false;
+  const crypto = require('node:crypto');
+  const alive = (pid) => {
+    if (!pid || pid === process.pid) return false;
+    try {
+      process.kill(pid, 0);
+    } catch (e) {
+      if (e.code !== 'EPERM') return false;
+    }
+    try {
+      if (fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').pop().trim().startsWith('Z')) return false;
+    } catch {
+      /* not linux */
+    }
+    return true;
+  };
+  const tokenTag = crypto.createHash('sha256').update(String(config.discordToken || 'none')).digest('hex').slice(0, 12);
+  const locks = [path.join(os.tmpdir(), `fig-${tokenTag}.pid`), path.join(__dirname, '..', 'logs', 'fig.pid')];
+  for (const lock of locks) {
+    let holder = null;
+    try {
+      holder = JSON.parse(fs.readFileSync(lock, 'utf8'));
+    } catch {
       try {
-        process.kill(old, 0);
-        running = true;
-      } catch (e) {
-        running = e.code === 'EPERM';
-      }
-      try {
-        if (running && fs.readFileSync(`/proc/${old}/stat`, 'utf8').split(') ').pop().trim().startsWith('Z')) running = false;
+        holder = { pid: Number(String(fs.readFileSync(lock, 'utf8')).trim()) };
       } catch {
-        /* not linux */
-      }
-      if (running && !process.env.FIG_ALLOW_SECOND) {
-        console.error(`Fig is already running (pid ${old}). Not starting a second copy on the same token.`);
-        process.exit(0);
+        holder = null;
       }
     }
-  } catch {
-    /* no pid file */
-  }
-  try {
-    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-    fs.writeFileSync(pidFile, String(process.pid));
-    process.on('exit', () => {
+    if (holder && alive(holder.pid) && !process.env.FIG_ALLOW_SECOND) {
+      const msg = `Another copy of Fig is already running with this bot token (pid ${holder.pid}${holder.dir ? ` in ${holder.dir}` : ''}). Not starting a second one.`;
+      console.error(msg);
       try {
-        if (Number(fs.readFileSync(pidFile, 'utf8')) === process.pid) fs.unlinkSync(pidFile);
+        fs.mkdirSync(path.join(__dirname, '..', 'logs'), { recursive: true });
+        fs.appendFileSync(path.join(__dirname, '..', 'logs', 'crash.log'), `${new Date().toISOString()} pid=${process.pid} ${msg}\n`);
       } catch {
         /* ignore */
       }
-    });
-  } catch {
-    /* ignore */
+      process.exit(STANDBY_EXIT);
+    }
   }
+  const me = JSON.stringify({ pid: process.pid, dir: path.join(__dirname, '..'), at: Date.now() });
+  for (const lock of locks) {
+    try {
+      fs.mkdirSync(path.dirname(lock), { recursive: true });
+      fs.writeFileSync(lock, me);
+    } catch {
+      /* ignore */
+    }
+  }
+  process.on('exit', () => {
+    for (const lock of locks) {
+      try {
+        if (JSON.parse(fs.readFileSync(lock, 'utf8')).pid === process.pid) fs.unlinkSync(lock);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
 }
 
 crash.noteIfPreviousDied();
-crash.note('process started');
+crash.note(`process started: ${instance.describe()}`);
 // Heartbeat: a file for scripts/ensure-running.sh, and an IPC message for scripts/supervise.js.
 // If the event loop gets stuck these stop, and the supervisor kills and restarts Fig.
 function heartbeat() {
@@ -136,11 +164,59 @@ function homeChannel(guild) {
   );
 }
 
+// ---- one Fig per token, across machines ----
+// The pid lock only stops a second copy on the same machine/folder. A copy running somewhere else on
+// the same token shows up as our bot user's voice state with a gateway session that isn't ours.
+const guard = new InstanceGuard();
+client.on(Events.Raw, (p) => guard.onRaw(p));
+
+function enterStandby(guild, vs, { announceAfterMs = 0 } = {}) {
+  const s = getSession(guild);
+  const firstTime = !s.standby;
+  s.standBy();
+  if (!firstTime) return;
+  const ch = guild.channels.cache.get(vs.channelId);
+  const msg =
+    `Another copy of Fig is running on this bot token and is using #${ch?.name || 'voice'}. ` +
+    `Two copies fight over the voice channel, which is what makes old songs cut into the current one. ` +
+    `This copy (${instance.describe()}) is stepping aside and staying quiet. Only one copy of Fig should run.`;
+  crash.note(`STANDBY: another Fig owns voice (session ${vs.sessionId}, ours ${guard.current}). ${instance.describe()}`);
+  log.error(msg);
+  const say = () => {
+    if (!s.standby) return; // it was a leftover voice state from our own previous run, and it went away
+    s.voiceChannelId = vs.channelId;
+    s.postText(msg);
+  };
+  if (announceAfterMs) setTimeout(say, announceAfterMs).unref?.();
+  else say();
+}
+
+// While standing by, look every minute: once our bot user's voice state is gone or ours, be active again.
+setInterval(() => {
+  for (const s of sessions.values()) {
+    if (!s.standby) continue;
+    const mine = s.guild.voiceStates.cache.get(client.user?.id);
+    if (!guard.isForeign(mine)) {
+      s.leaveStandby();
+      crash.note('no other Fig copy in voice any more; this copy is active again');
+      autoJoinBusiest(s.guild).catch(() => {});
+    }
+  }
+}, 60000).unref();
+
 /** Join where people are; with HOME_VOICE_CHANNEL set, go home when nobody is anywhere. */
 async function autoJoinBusiest(guild) {
   if (!config.autoJoin) return;
   const s = getSession(guild);
-  if (s.connection) return;
+  if (s.connection || s.standby) return;
+  const mine = guild.voiceStates.cache.get(client.user.id);
+  if (guard.isForeign(mine)) {
+    // Right after a restart this can be the voice state our previous run left behind (Discord clears it
+    // within a minute or so). Stay out of the channel either way; only announce if it doesn't go away.
+    log.warn(`our bot user is already in voice under another session (${mine.sessionId}); waiting instead of joining`);
+    enterStandby(guild, mine, { announceAfterMs: 120000 });
+    return;
+  }
   const channels = guild.channels.cache
     .filter((c) => (c.type === ChannelType.GuildVoice || c.type === ChannelType.GuildStageVoice) && c.id !== guild.afkChannelId)
     .filter((c) => humans(c).length > 0 && canJoin(c) && c.id !== s.suppressAutoJoinChannel)
@@ -216,6 +292,7 @@ client.on(Events.GuildCreate, async (guild) => {
 
 client.on(Events.InteractionCreate, (i) => {
   if (i.guild && !guildAllowed(i.guild)) return;
+  if (i.guild && sessions.get(i.guild.id)?.standby) return; // the active copy answers
   onInteraction(i, getSession);
 });
 
@@ -226,6 +303,20 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
   // Fig's own voice state.
   if (newState.id === client.user.id) {
+    if (guard.isForeign(newState)) {
+      // Another copy just took (or holds) the voice channel. Do not fight it.
+      enterStandby(guild, newState);
+      return;
+    }
+    if (s.standby) {
+      if (!newState.channelId) {
+        // The other copy left voice (or its leftover state expired). Become the active copy again.
+        s.leaveStandby();
+        crash.note('other Fig copy left voice; this copy is active again');
+        setTimeout(() => autoJoinBusiest(guild).catch(() => {}), 2000).unref?.();
+      }
+      return;
+    }
     if (oldState.channelId && !newState.channelId) s.onForcedDisconnect();
     else if (newState.channelId && oldState.channelId && newState.channelId !== oldState.channelId) s.onMoved(newState.channelId);
     return;
@@ -238,6 +329,7 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     if (!ch || humans(ch).length === 0) s.suppressAutoJoinChannel = null;
   }
 
+  if (s.standby) return;
   if (s.connection || s.wantConnected) {
     // Fig is sitting alone (e.g. in its home channel) and people gathered somewhere else: go to them.
     const mine = s.voiceChannel();
@@ -277,6 +369,7 @@ client.on(Events.MessageCreate, async (message) => {
   try {
     if (message.author.bot || !message.inGuild() || !guildAllowed(message.guild)) return;
     if (!message.mentions.users.has(client.user.id)) return;
+    if (sessions.get(message.guild.id)?.standby) return; // the active copy answers
     const member = message.member || (await message.guild.members.fetch(message.author.id).catch(() => null));
     if (!member) return;
     const s = getSession(message.guild);

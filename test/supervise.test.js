@@ -85,3 +85,12 @@ test('after the machine was frozen (supervisor paused), Fig is restarted so it r
     for (const pid of starts(dir)) try { process.kill(Number(pid), 'SIGKILL'); } catch { /* gone */ }
   }
 });
+
+test('when Fig finds another copy on the token (exit 64), the supervisor does not restart it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'figsup-'));
+  const sup = startSupervisor(dir, 'dup');
+  const code = await new Promise((r) => sup.on('exit', r));
+  assert.strictEqual(code, 0);
+  assert.strictEqual(starts(dir).length, 1);
+  assert.match(fs.readFileSync(path.join(dir, 'crash.log'), 'utf8'), /another copy is already running/);
+});

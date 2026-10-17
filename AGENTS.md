@@ -11,12 +11,13 @@ You are setting up and running **Fig**, a Discord voice bot (Node.js). The code 
 3. Create `.env` from `.env.example`. Ask the user for `DISCORD_TOKEN` and `XAI_API_KEY`, and for `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (optional, recommended). Never print them, and never commit `.env`.
 4. `npm test`. All tests must pass. They need no network.
 5. `npm run doctor -- "daft punk one more time"`. Fix every FAIL it reports, and it tells you how. If it warns that `GROK_MODEL` isn't available, set it to a model from the list it prints.
-6. Start it so that it comes back on its own. Do not just run `npm start` in a terminal that goes away:
+6. Make sure no other copy of Fig is running anywhere on this bot token: `ps aux | grep -E "node .*(supervise|index|fig-worker)" | grep -v grep`. Also check old deployments, such as a website worker. Two copies fight over voice and make old songs cut in.
+7. Start it so that it comes back on its own. Do not just run `npm start` in a terminal that goes away:
    - In a sandbox or container: make the boot or startup hook run `scripts/ensure-running.sh`, and also run it every minute (cron: `* * * * * /path/scripts/ensure-running.sh`). It starts Fig if it isn't running and restarts it if it is frozen. Running it twice is safe.
    - On Linux with systemd, use `deploy/fig.service`.
    - On Windows, run `deploy/install-windows-task.ps1` in an admin PowerShell.
-7. Set `HOME_VOICE_CHANNEL=zzzz` in `.env` so Fig always goes back to #zzzz.
-8. Read `PROBLEMS.md`. It explains each past failure and which log line proves it's fixed.
+8. Set `HOME_VOICE_CHANNEL=zzzz` in `.env` so Fig always goes back to #zzzz.
+9. Read `PROBLEMS.md`. It explains each past failure and which log line proves it's fixed.
 
 ## Rules if you change anything
 
