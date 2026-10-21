@@ -23,6 +23,9 @@ alive() {
   if [ -r "/proc/$1/stat" ]; then [ "$(awk '{print $3}' "/proc/$1/stat" 2>/dev/null)" != "Z" ]; fi
 }
 
+# Stopped on purpose from the control panel: don't bring it back until someone presses Start.
+if [ -f "$ROOT/data/fig.stopped" ]; then exit 0; fi
+
 NODE="${NODE:-$(command -v node)}"
 if [ -z "$NODE" ]; then NOTE "node not found on PATH"; exit 1; fi
 

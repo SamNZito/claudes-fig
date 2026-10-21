@@ -74,9 +74,11 @@ test('pause stays paused even while Fig talks', async () => {
 test('music ducks under Fig speaking', async () => {
   const { mixer, player } = setup('g4');
   player.enqueue([req(player, track('tone4'))]);
-  assert.ok(await waitFor(() => mixer.music && mixer.music.hasData));
+  // Wait for a good amount of audio, so a slow machine can't make "before" a silent underrun.
+  assert.ok(await waitFor(() => mixer.music && mixer.music.buffered >= 3840 * 30));
   const before = await pull(mixer, 10);
-  const loud = rms(before[9]);
+  const loud = Math.max(...before.map(rms));
+  assert.ok(loud > 0, 'music was audible before Fig spoke');
   const clip = new PcmSource();
   clip.push(Buffer.alloc(3840 * 40));
   clip.end();
@@ -91,7 +93,7 @@ test('volume changes never stop or restart the song', async () => {
   let ended = 0;
   player.on('idle', () => ended++);
   player.enqueue([req(player, track('tone-vol'))]);
-  assert.ok(await waitFor(() => mixer.music && mixer.music.hasData));
+  assert.ok(await waitFor(() => mixer.music && mixer.music.buffered >= 3840 * 40)); // enough audio that a slow machine can't underrun
   await pull(mixer, 20);
   const cur = player.current;
   const pos = cur.source.positionMs;

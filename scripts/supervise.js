@@ -53,6 +53,16 @@ function alive(pid) {
   return true;
 }
 
+// ---- stopped on purpose (control panel Stop) ----
+// Boot hooks, cron and scheduled tasks all end up here, so this is where "Stop" is made to stick.
+{
+  const stopped = path.join(process.env.FIG_PANEL_DATA || path.join(ROOT, 'data'), 'fig.stopped');
+  if (fs.existsSync(stopped)) {
+    note(`not starting: Fig was stopped from the control panel (${stopped}). Press Start there to run it.`);
+    process.exit(0);
+  }
+}
+
 // ---- single instance ----
 try {
   const old = Number(String(fs.readFileSync(pidFile, 'utf8')).trim());

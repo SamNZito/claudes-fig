@@ -23,11 +23,25 @@ function list(name) {
     .filter(Boolean);
 }
 
+// The bot token. The control panel (scripts/panel.js) saves it to a private file instead of .env, so
+// it never sits in the environment of other processes. That file wins over DISCORD_TOKEN: after a
+// token reset, the token pasted into the panel is the one that counts.
+const TOKEN_FILE = process.env.FIG_TOKEN_FILE || path.join(__dirname, '..', 'data', 'discord-token');
+function discordToken() {
+  try {
+    const t = require('node:fs').readFileSync(TOKEN_FILE, 'utf8').trim();
+    if (t) return t;
+  } catch {
+    /* no saved token */
+  }
+  return str('DISCORD_TOKEN');
+}
+
 // normal: Fig needs its wake name. conversation: no wake name needed. Every call starts in normal.
 const MODES = ['normal', 'conversation'];
 
 const config = {
-  discordToken: str('DISCORD_TOKEN'),
+  discordToken: discordToken(),
   xaiKey: str('XAI_API_KEY'),
   xaiBase: str('XAI_BASE_URL', 'https://api.x.ai/v1').replace(/\/+$/, ''),
 
@@ -104,9 +118,9 @@ config.MODES = MODES;
 
 function validateConfig() {
   const problems = [];
-  if (!config.discordToken) problems.push('DISCORD_TOKEN is missing');
+  if (!config.discordToken) problems.push('No bot token: paste it into the control panel (npm run panel) or set DISCORD_TOKEN in .env');
   if (!config.xaiKey) problems.push('XAI_API_KEY is missing');
   return problems;
 }
 
-module.exports = { config, validateConfig, MODES };
+module.exports = { TOKEN_FILE, config, validateConfig, MODES };

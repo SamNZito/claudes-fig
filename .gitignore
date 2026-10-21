@@ -4,3 +4,5 @@ data/*.json
 data/*.tmp
 *.log
 logs/
+data/discord-token
+data/fig.stopped

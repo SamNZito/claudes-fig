@@ -18,6 +18,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 16px 40px; }
 header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
@@ -94,6 +95,11 @@ h1 { font: 600 30px/1 Georgia, "Times New Roman", serif; margin: 0; }
 <script>
 (() => {
   const key = new URLSearchParams(location.search).get('key');
+  // Inside the control panel: the panel already shows the name, so drop this page's header.
+  if (window.self !== window.top || new URLSearchParams(location.search).get('embed')) {
+    document.querySelectorAll('header > :not(.who)').forEach((el) => (el.hidden = true));
+    document.querySelector('.wrap').style.paddingTop = '12px';
+  }
   const api = (p, params = {}) => {
     const u = new URL(p, location.href);
     for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) u.searchParams.set(k, v);

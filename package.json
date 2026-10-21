@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node scripts/supervise.js",
     "start:once": "node src/index.js",
+    "panel": "node scripts/panel.js",
     "doctor": "node scripts/doctor.js",
     "test": "node --test --test-concurrency=1 --test-force-exit \"test/*.test.js\""
   },

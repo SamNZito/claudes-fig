@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fig control panel</title>
+<style>
+:root {
+  --bg: #f3eee6; --card: #fbf9f4; --ink: #1d1b18; --muted: #6b665e; --line: #e2dbcf; --field: #f1ebe1;
+  --green: #1f6b45; --green-bg: #e3f0e7; --on-green: #fff; --red: #a33a2b; --red-bg: #f6e3df; --amber: #8a5a00; --amber-bg: #f7ecd4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171614; --card: #201f1c; --ink: #ece8e1; --muted: #a39d92; --line: #34312c; --field: #2a2825;
+    --green: #6cc596; --green-bg: #1d2e24; --on-green: #10241a; --red: #f08c7c; --red-bg: #3a221e; --amber: #e5b65c; --amber-bg: #3a2f19;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 640px; margin: 0 auto; padding: 40px 16px 24px; }
+.wide { max-width: 1100px; margin: 0 auto; padding: 0 16px 40px; }
+header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.logo { width: 48px; height: 48px; border-radius: 50%; background: var(--green); display: grid; place-items: center; color: var(--on-green); font-size: 18px; flex: none; }
+.sub { color: var(--muted); font-size: 14px; }
+h1 { font: 600 36px/1 Georgia, "Times New Roman", serif; margin: 2px 0 0; }
+h2 { font: 600 22px Georgia, serif; margin: 0 0 12px; }
+p.lead { margin: 0 0 22px; font-size: 17px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+.card.ok { background: var(--green-bg); border-color: var(--green); }
+.card.bad { background: var(--red-bg); border-color: var(--red); }
+.nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.nums .k { color: var(--muted); font-size: 14px; }
+.nums .v { font: 600 30px/1.1 Georgia, serif; }
+.small { font-size: 14px; }
+.muted { color: var(--muted); }
+.state { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.on { background: var(--green); box-shadow: 0 0 0 4px var(--green-bg); }
+.dot.off { background: var(--red); }
+.btns { display: flex; flex-wrap: wrap; gap: 10px; }
+button { font: 600 16px system-ui, sans-serif; border-radius: 12px; padding: 12px 20px; border: 1px solid var(--green); cursor: pointer; }
+button.primary { background: var(--green); color: var(--on-green); }
+button.secondary { background: transparent; color: var(--green); }
+button.danger { background: transparent; color: var(--red); border-color: var(--red); }
+button:disabled { opacity: .5; cursor: default; }
+label { display: block; font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+input { width: 100%; font: 16px system-ui, sans-serif; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); color: var(--ink); margin-bottom: 12px; }
+#msg { min-height: 1.5em; margin-top: 12px; font-size: 14px; }
+#msg.err { color: var(--red); } #msg.ok { color: var(--green); }
+details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+details[open] summary { margin-bottom: 12px; }
+.logs { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.logs .bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); gap: 8px; flex-wrap: wrap; }
+.logs .bar a { color: var(--green); font-size: 14px; }
+iframe { display: block; width: 100%; height: 1500px; border: 0; background: var(--bg); }
+.only-login { display: none; }
+body[data-login] .only-login { display: block; }
+body[data-login] .only-app { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" aria-hidden="true">((•))</div>
+    <div><div class="sub">Discord voice</div><h1>Fig</h1></div>
+  </header>
+
+  <section class="card only-login">
+    <h2>Control panel</h2>
+    <form method="post" action="login">
+      <label for="key">Panel key</label>
+      <input id="key" name="key" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Open</button>
+      <p class="small muted" id="wrong" hidden>That key didn't match.</p>
+    </form>
+  </section>
+
+  <div class="only-app">
+    <p class="lead" id="lead">Loading…</p>
+
+    <section class="card" id="copyCard">
+      <h2>This copy</h2>
+      <div class="nums">
+        <div><div class="k">Supervisor</div><div class="v" id="nSup">–</div></div>
+        <div><div class="k">Bot</div><div class="v" id="nBot">–</div></div>
+        <div><div class="k">Stray</div><div class="v" id="nStray">–</div></div>
+      </div>
+      <div class="small" id="copyText"></div>
+      <div class="small muted" id="beat" style="margin-top:6px"></div>
+    </section>
+
+    <section class="card">
+      <div class="state"><span class="dot" id="dot"></span><span id="stateText">…</span></div>
+      <div class="btns">
+        <button class="primary" id="start" hidden>Start</button>
+        <button class="secondary" id="restart" hidden>Restart</button>
+        <button class="danger" id="stop" hidden>Stop</button>
+      </div>
+      <div id="msg" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="card">
+      <details id="tokenBox">
+        <summary id="tokenSummary">New Discord bot token</summary>
+        <form id="tokenForm" autocomplete="off">
+          <input id="token" type="password" placeholder="Paste the reset token" aria-label="New Discord bot token" autocomplete="off" spellcheck="false">
+          <button class="primary" id="saveToken" type="submit">Save and start</button>
+        </form>
+        <p class="small muted" style="margin:10px 0 0">Saved on this server only (data/discord-token, owner-only). Never shown again and not passed through the environment. Do not paste the token into chat.</p>
+      </details>
+      <p class="small muted" style="margin:12px 0 0">Build <span id="sha">…</span></p>
+    </section>
+  </div>
+</div>
+
+<div class="wide only-app">
+  <section class="logs">
+    <div class="bar"><strong>Live log</strong><a href="fig/" target="_blank" rel="noopener">Open in its own tab</a></div>
+    <iframe id="logFrame" src="fig/" title="Fig live log"></iframe>
+  </section>
+</div>
+
+<script>
+(() => {
+  if (document.body.dataset.login) {
+    if (new URLSearchParams(location.search).get('wrong')) document.getElementById('wrong').hidden = false;
+    return;
+  }
+  const $ = (id) => document.getElementById(id);
+  let last = null;
+
+  function msg(text, kind) {
+    $('msg').textContent = text || '';
+    $('msg').className = kind || '';
+  }
+
+  function render(s) {
+    last = s;
+    const p = s.processes;
+    const sups = p ? p.supervisors : s.supervisor.alive ? 1 : 0;
+    const bots = p ? Math.max(p.bots, s.bot.alive ? 1 : 0) : s.bot.alive ? 1 : 0;
+    $('nSup').textContent = sups;
+    $('nBot').textContent = bots;
+    $('nStray').textContent = p ? p.stray : '?';
+    const single = sups <= 1 && bots <= 1 && (!p || p.stray === 0);
+    $('copyCard').className = 'card ' + (single ? (bots === 1 ? 'ok' : '') : 'bad');
+    $('copyText').textContent = !single
+      ? 'More than one Fig is running on this machine. Press Stop, then Start, so only one copy runs.'
+      : bots === 1
+        ? 'One supervisor and one bot. This machine is running a single copy. The live log below shows if a copy elsewhere is on the same token.'
+        : sups === 1
+          ? 'The supervisor is up and is starting the bot.'
+          : 'Fig is not running on this machine.';
+    $('beat').textContent = s.bot.heartbeatSec == null ? '' : s.running ? `Last heartbeat ${s.bot.heartbeatSec}s ago.` : '';
+    $('sha').textContent = s.code;
+
+    const busy = s.busy;
+    $('dot').className = 'dot ' + (s.running ? 'on' : 'off');
+    $('stateText').textContent = busy ? 'Working…' : s.running ? 'Fig is running' : s.stoppedOnPurpose ? 'Fig is stopped (stays stopped until you press Start)' : 'Fig is not running';
+    $('start').hidden = s.running;
+    $('restart').hidden = !s.running;
+    $('stop').hidden = !s.running;
+    $('start').disabled = !s.token || Boolean(busy);
+    $('restart').disabled = $('stop').disabled = Boolean(busy);
+
+    if (s.token) {
+      $('lead').textContent = s.running ? 'Fig is running with the saved token.' : 'A token is already saved on this server. Press Start to run Fig with it.';
+      $('tokenSummary').textContent = 'Replace the bot token';
+    } else {
+      $('lead').textContent = 'Reset the bot token in the Discord Developer Portal, then paste the new one here.';
+      $('tokenSummary').textContent = 'New Discord bot token';
+      $('tokenBox').open = true;
+    }
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch('api/state', { cache: 'no-store' });
+      if (r.status === 401) return location.reload();
+      render(await r.json());
+    } catch {
+      $('stateText').textContent = 'The panel is not answering';
+    }
+  }
+
+  async function act(name, payload) {
+    msg(name === 'token' ? 'Saving…' : name === 'stop' ? 'Stopping…' : 'Starting…');
+    document.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    try {
+      const r = await fetch('api/' + name, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-fig-panel': '1' },
+        body: JSON.stringify(payload || {}),
+      });
+      const d = await r.json();
+      msg(d.message, r.ok ? 'ok' : 'err');
+      if (d.state) render(d.state);
+      if (r.ok && name !== 'stop') setTimeout(() => ($('logFrame').src = 'fig/'), 4000);
+    } catch (e) {
+      msg('Could not reach the panel: ' + e.message, 'err');
+    }
+    refresh();
+  }
+
+  $('start').addEventListener('click', () => act('start'));
+  $('restart').addEventListener('click', () => act('restart'));
+  $('stop').addEventListener('click', () => act('stop'));
+  $('tokenForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const t = $('token').value.trim();
+    if (!t) return msg('Paste the token first.', 'err');
+    $('token').value = '';
+    act('token', { token: t });
+  });
+
+  refresh();
+  setInterval(refresh, 3000);
+})();
+</script>
+</body>
+</html>

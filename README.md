@@ -158,6 +158,17 @@ Logs rotate at `FIG_LOG_MAX_MB` (50) and keep `FIG_LOG_KEEP` (5) old files.
 
 **Two songs alternating?** Every 15 s while music plays, fig.log has an `on air: "<song>" sent Ns, voice=… subscriptions=…` line: what this copy is really sending. If people heard a song that isn't in those lines, the audio came from another program (another Fig copy on the token, or another bot in the channel; check whose avatar lights up green). `BUG:` lines mean this copy has two sessions or two audio subscriptions for one server. Also search for `mixer music ->`. If one `host:pid` switches between two songs, it's a bug in that copy. If there are no such lines for the cut-in, or there are `FOREIGN` voice states or `STANDBY` lines, another copy of Fig is on the token (PROBLEMS.md §8).
 
+## Control panel
+
+`npm run panel` serves the page to keep open on the host:
+
+- **Token:** paste a new bot token once. It is saved to `data/discord-token` (owner-only, never shown again, never put in the environment), and Fig starts with it. A token saved here wins over `DISCORD_TOKEN` in `.env`.
+- **Start:** when a token is already saved, just press Start. **Stop** and **Restart** are there too. Stop stays stopped: the every-minute `ensure-running.sh` check, boot hooks and the supervisor itself won't start Fig again until Start is pressed.
+- **This copy:** how many supervisors, bots and strays are running on this machine, plus the last heartbeat.
+- **Live log:** Fig's live log page (below) is embedded at `/fig/`.
+
+The panel is its own small process, so it stays up while Fig is stopped or restarting. It listens on `$PORT` if the host sets one, otherwise on 127.0.0.1:8080. Anywhere but 127.0.0.1 it needs `FIG_PANEL_KEY`: it asks for the key once, then remembers it in a cookie.
+
 ## Live log page
 
 Fig serves its own page: **http://127.0.0.1:8790/** on the machine it runs on (`FIG_WEB_PORT`).
