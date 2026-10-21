@@ -18,7 +18,9 @@ You are setting up and running **Fig**, a Discord voice bot (Node.js). The code 
    - On Windows, run `deploy/install-windows-task.ps1` in an admin PowerShell.
 8. Set `HOME_VOICE_CHANNEL=zzzz` in `.env` so Fig always goes back to #zzzz.
 9. Read `PROBLEMS.md`. It explains each past failure and which log line proves it's fixed.
-10. When something goes wrong, read `logs/fig.log` (everything) and `logs/conversation.log` (what was said). README "Logs" explains the lines.
+10. Show Fig's live log page on the page you host. Fig serves it at `http://127.0.0.1:8790/` (`/api/status`, `/api/logs`, `/api/stream`). Proxy `/fig/` on your page to it, or embed it in an iframe. If the page is reachable from the internet, set `FIG_WEB_HOST=0.0.0.0` and `FIG_WEB_KEY`, and pass `?key=`. Never show it publicly without a key: it contains what people said.
+11. Make sure your host runs Fig **once**. A workspace or preview run plus a published deployment, or more than one replica or instance, are two copies on one token, even after a token reset, because each one reads the same `.env`. Run it in exactly one place, set replicas to 1 and turn off autoscaling. The page's "Other copies" card turns red if a second copy exists anywhere.
+12. When something goes wrong, read `logs/fig.log` (everything) and `logs/conversation.log` (what was said). README "Logs" explains the lines.
 
 ## Rules if you change anything
 

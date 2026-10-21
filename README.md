@@ -158,6 +158,22 @@ Logs rotate at `FIG_LOG_MAX_MB` (50) and keep `FIG_LOG_KEEP` (5) old files.
 
 **Two songs alternating?** Every 15 s while music plays, fig.log has an `on air: "<song>" sent Ns, voice=… subscriptions=…` line: what this copy is really sending. If people heard a song that isn't in those lines, the audio came from another program (another Fig copy on the token, or another bot in the channel; check whose avatar lights up green). `BUG:` lines mean this copy has two sessions or two audio subscriptions for one server. Also search for `mixer music ->`. If one `host:pid` switches between two songs, it's a bug in that copy. If there are no such lines for the cut-in, or there are `FOREIGN` voice states or `STANDBY` lines, another copy of Fig is on the token (PROBLEMS.md §8).
 
+## Live log page
+
+Fig serves its own page: **http://127.0.0.1:8790/** on the machine it runs on (`FIG_WEB_PORT`).
+
+- **Other copies:** green when there's no sign of another program on the bot token. It turns red the moment Fig catches one in any of three ways:
+  - Its bot account shows up in voice under a gateway session that isn't its own.
+  - A slash command was already answered when this copy tried to answer it.
+  - A message from the bot account appears that this copy never sent.
+- **This copy:** machine, process, code version, uptime, Discord connection.
+- **Each server:** voice channel, what is **on air** right now (what this copy is actually sending), the request, the queue, the player, mode and volume.
+- **Live log:** tabs for Everything, Talk, Music, On air, Problems and Copies, plus search and a choice of fig.log, conversation.log or crash.log. New lines stream in as they're written.
+
+The JSON is also available directly: `/api/status`, `/api/logs?view=onair&q=let%20go`, `/api/stream`.
+
+The logs contain what people said, so the page only listens on 127.0.0.1 by default. To open it from elsewhere, or to show it inside a hosted page, set `FIG_WEB_HOST=0.0.0.0` and `FIG_WEB_KEY=<secret>`, then open `/?key=<secret>`. Without a key, Fig refuses to listen beyond the machine.
+
 ## Layout
 
 ```

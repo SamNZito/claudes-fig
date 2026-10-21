@@ -52,6 +52,7 @@ function humanMembers(channel) {
 // How many GuildSessions exist per guild in this process. Must be 1: two would mean two mixers and two
 // audio players for one server, which could play two songs (a pattern seen in other bots' bug reports).
 const sessionsPerGuild = new Map();
+const { copyWatch } = require('../util/copyWatch');
 
 class GuildSession extends EventEmitter {
   constructor(client, guild) {
@@ -470,6 +471,29 @@ class GuildSession extends EventEmitter {
     return this.speechChain;
   }
 
+  /** Everything the web page shows about this server, right now. */
+  statusSnapshot() {
+    const st = this.settings();
+    const cur = this.player.current;
+    const music = this.mixer.music;
+    const vc = this.guild.channels.cache.get(this.voiceChannelId);
+    return {
+      server: this.guild.name,
+      voiceChannel: vc ? vc.name : this.voiceChannelId || null,
+      voice: this.connection?.state?.status || 'not connected',
+      audioPlayer: this.audioPlayer.state?.status || '-',
+      subscriptions: this.audioPlayer.subscribers?.length ?? null,
+      standby: Boolean(this.standby),
+      mode: st.mode,
+      volume: st.volume,
+      paused: this.player.paused,
+      request: cur ? { asked: cur.entry.asked, by: cur.entry.by || cur.entry.requestedBy || null, status: cur.status, title: cur.track?.title || null, key: cur.track?.key || null, positionSec: Math.round((cur.source?.positionMs || 0) / 1000) } : null,
+      onAir: music && this.mixer.musicAudible() ? { label: music.label, sentSec: Math.round((this.mixer.musicFrames || 0) / 50) } : null,
+      queue: this.player.queue.items.slice(0, 25).map((e) => e.asked || e.title),
+      dj: this.dj.enabled ? this.dj.mood || 'on' : null,
+    };
+  }
+
   logOnAir() {
     if (!this.connection || !this.mixer.music || !this.mixer.musicAudible()) return;
     const subs = this.audioPlayer.subscribers?.length ?? '?';
@@ -520,7 +544,7 @@ class GuildSession extends EventEmitter {
       return;
     }
     conversation('posted', this.settings().wakeName, content, `#${ch.name}`);
-    ch.send({ content: content.slice(0, 1900), allowedMentions: { users: pingUser ? [pingUser] : [] } }).catch((e) => log.warn(`post to #${ch.name} failed: ${e.message}`));
+    copyWatch.track(ch.send({ content: content.slice(0, 1900), allowedMentions: { users: pingUser ? [pingUser] : [] } })).catch((e) => log.warn(`post to #${ch.name} failed: ${e.message}`));
   }
 
   /** Short chat note for fast voice commands, so the chat shows what happened. */

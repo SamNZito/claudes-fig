@@ -109,6 +109,8 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 
 **The sure fix: reset the bot token.** Discord Developer Portal → the app → Bot → Reset Token. Put the new token only in the `.env` of the one copy that should run. Every other copy, wherever it is, is logged out for good.
 
+**Oct 21: it happened again after the token reset and a fresh deploy.** The host's page showed one supervisor and one bot on its machine. That count only covers that one machine. A host with a Publish button usually runs the app twice: once in the workspace or preview, and once as the published deployment. Some hosts also run several replicas. Every copy reads the same `.env`, so a token reset doesn't separate them. To catch this from any machine, Fig now also checks each message its bot account posts. If a message appears that this copy never sent (a "Now playing" line, a slash-command reply), another copy sent it. The live log page (README "Live log page") shows the result in the "Other copies" card, and the `on air` view shows what this copy was really sending at the moment of a cut-in.
+
 **If you see the "another copy" message:** find and stop the other copy. On the sandbox: `ps aux | grep -E "node .*(supervise|index|fig-worker)" | grep -v grep`. Also check for an old website deployment that still has the bot token.
 
 ## 9. A queued song disappeared when a different song was skipped (Oct 16)

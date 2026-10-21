@@ -88,8 +88,9 @@ test('a command another copy of Fig already answered is reported as a second cop
   };
   await onInteraction(i, () => s);
   assert.equal(posted.length, 1);
-  assert.match(posted[0], /Another copy of Fig answered \*\*\/queue\*\*/);
+  assert.match(posted[0], /Another copy of Fig is running on this bot token \(\/queue was already answered/);
+  assert.match(posted[0], /This is .*pid/);
   const fs = require('node:fs');
   const { ACTIVITY } = require('../src/log');
-  assert.match(fs.readFileSync(ACTIVITY, 'utf8'), /ANOTHER COPY: \/queue was already answered/);
+  assert.match(fs.readFileSync(ACTIVITY, 'utf8'), /ANOTHER COPY \(command\): \/queue was already answered/);
 });

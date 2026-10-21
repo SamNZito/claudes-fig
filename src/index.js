@@ -11,6 +11,7 @@ const log = require('./log').logger('fig');
 const crash = require('./crashlog');
 const { InstanceGuard } = require('./discord/instanceGuard');
 const instance = require('./util/instance');
+const { copyWatch } = require('./util/copyWatch');
 
 // ---- one Fig per token on this machine ----
 // Two clients on one bot token fight over the voice channel (old songs cut into the current one).
@@ -185,7 +186,7 @@ function enterStandby(guild, vs, { announceAfterMs = 0 } = {}) {
     `Another copy of Fig is running on this bot token and is using #${ch?.name || 'voice'}. ` +
     `Two copies fight over the voice channel, which is what makes old songs cut into the current one. ` +
     `This copy (${instance.describe()}) is stepping aside and staying quiet. Only one copy of Fig should run.`;
-  crash.note(`STANDBY: another Fig owns voice (session ${vs.sessionId}, ours ${guard.current}). ${instance.describe()}`);
+  copyWatch.report('voice', `our bot user is in #${ch?.name || vs.channelId} under gateway session ${vs.sessionId}; ours is ${guard.current}`);
   log.error(msg);
   const say = () => {
     if (!s.standby) return; // it was a leftover voice state from our own previous run, and it went away
@@ -384,6 +385,16 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
 
 // "@Fig what's this?" with a screenshot, or any question, in a text channel.
 client.on(Events.MessageCreate, async (message) => {
+  // A message from our own bot user that this copy didn't send = another copy is running (any machine).
+  if (message.author?.id === client.user?.id && message.inGuild?.()) {
+    copyWatch
+      .checkOwnMessage(message)
+      .then((foreign) => {
+        if (foreign && !sessions.get(message.guild.id)?.standby) copyWatch.warnInChat(getSession(message.guild), copyWatch.recent[copyWatch.recent.length - 1]);
+      })
+      .catch(() => {});
+    return;
+  }
   try {
     if (message.author.bot || !message.inGuild() || !guildAllowed(message.guild)) return;
     if (!message.mentions.users.has(client.user.id)) return;
@@ -397,7 +408,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (!text && !img) return;
     await message.channel.sendTyping().catch(() => {});
     await s.brain.handleText(member, text, {
-      reply: (c) => message.reply({ content: String(c).slice(0, 1990), allowedMentions: { repliedUser: false, parse: [] } }),
+      reply: (c) => copyWatch.track(message.reply({ content: String(c).slice(0, 1990), allowedMentions: { repliedUser: false, parse: [] } })),
       image: img ? { url: img.url, contentType: img.contentType } : undefined,
     });
   } catch (e) {
@@ -488,6 +499,23 @@ const loginTimer = setTimeout(() => {
   process.exit(1);
 }, 30000);
 loginTimer.unref?.();
+
+// ---- live status + log page (src/web) ----
+function statusSnapshot() {
+  return {
+    copy: { host: require('node:os').hostname(), pid: process.pid, sha: instance.sha, uptime: instance.uptime(), describe: instance.describe() },
+    gateway: { ready: Boolean(client.readyAt) && client.ws.status === 0, user: client.user?.tag || null, session: guard.current, ping: client.ws.ping },
+    copies: copyWatch.snapshot(),
+    servers: [...sessions.values()].map((s) => {
+      try {
+        return s.statusSnapshot();
+      } catch (e) {
+        return { server: s.guild?.name, voice: `status failed: ${e.message}` };
+      }
+    }),
+  };
+}
+require('./web/server').startWebServer({ getStatus: statusSnapshot });
 
 client.login(config.discordToken).catch((e) => {
   log.error(`Discord login failed: ${e.message}`);
