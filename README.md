@@ -156,7 +156,7 @@ What fig.log covers, by scope:
 
 Logs rotate at `FIG_LOG_MAX_MB` (50) and keep `FIG_LOG_KEEP` (5) old files.
 
-**Two songs alternating?** Search fig.log for `mixer music ->`. If one `host:pid` switches between two songs, it's a bug in that copy. If there are no such lines for the cut-in, or there are `FOREIGN` voice states or `STANDBY` lines, another copy of Fig is on the token (PROBLEMS.md §8).
+**Two songs alternating?** Every 15 s while music plays, fig.log has an `on air: "<song>" sent Ns, voice=… subscriptions=…` line: what this copy is really sending. If people heard a song that isn't in those lines, the audio came from another program (another Fig copy on the token, or another bot in the channel; check whose avatar lights up green). `BUG:` lines mean this copy has two sessions or two audio subscriptions for one server. Also search for `mixer music ->`. If one `host:pid` switches between two songs, it's a bug in that copy. If there are no such lines for the cut-in, or there are `FOREIGN` voice states or `STANDBY` lines, another copy of Fig is on the token (PROBLEMS.md §8).
 
 ## Layout
 

@@ -44,7 +44,10 @@ class Mixer extends EventEmitter {
   setMusic(source) {
     const old = this.music;
     this.music = source || null;
-    if (old !== this.music) this.emit('musicChanged', source ? source.label : null);
+    if (old !== this.music) {
+      this.musicFrames = 0; // 20 ms frames of THIS song actually mixed into what goes to Discord
+      this.emit('musicChanged', source ? source.label : null);
+    }
     if (old && old !== source) old.destroy();
     if (source) {
       if (source.hasData) this.wake();
@@ -129,6 +132,7 @@ class Mixer extends EventEmitter {
       const pcm = this.music.read(FRAME_BYTES);
       if (pcm.length) {
         any = true;
+        this.musicFrames = (this.musicFrames || 0) + 1;
         const n = pcm.length >> 1;
         const g0 = prevVol * prevDuck;
         const g1 = this.volumeGain * this.duckGain;

@@ -99,6 +99,14 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 
 **Oct 17, 02:15-02:17, proof from the log.** Let Go was skipped and its download killed (`dead id=1 … live=0`). Christmas started and the mixer reported Christmas every 5 seconds through 02:18. Let Go was still heard at 02:17. The audio came from a process that wasn't this one. That process had its own queue and its own log file, which is why fig.log never showed it.
 
+**What other bots ran into (web search, Oct 20).** Searching for similar reports turned up these causes:
+
+- A Bot Maker user had "already acknowledged" errors from five processes running on one token. They went away when the extra processes were stopped.
+- In discord.py #9634 (voice not working after connect), a maintainer suspected two running instances and suggested resetting the token "to be certain". Nobody confirmed the cause.
+- Other bots' bugs: an old audio player still subscribed, or a callback from a finished track moving the queue along (discord.js #2443). Fig has one mixer and one audio player per server, and a skipped request can't restart. The `on air` lines and the `BUG:` checks now prove both from the log.
+- OpenClaw (#172648) passed other users' voice updates into @discordjs/voice 0.19.2, which muted the bot and moved it between channels. Fig uses discord.js's own adapter (`guild.voiceAdapterCreator`), which only passes on the bot's own updates.
+- @discordjs/voice 0.19.2 is the newest release. Its DAVE fixes (#11419) are about receiving audio, not sending.
+
 **The sure fix: reset the bot token.** Discord Developer Portal → the app → Bot → Reset Token. Put the new token only in the `.env` of the one copy that should run. Every other copy, wherever it is, is logged out for good.
 
 **If you see the "another copy" message:** find and stop the other copy. On the sandbox: `ps aux | grep -E "node .*(supervise|index|fig-worker)" | grep -v grep`. Also check for an old website deployment that still has the bot token.

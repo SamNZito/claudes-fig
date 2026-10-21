@@ -61,3 +61,20 @@ test('heard speech, decisions, actions, Grok calls and replies are all logged', 
   assert.match(all, / [a-z0-9-]+:\d+ \[/i, 'every line says which copy (host:pid) wrote it');
   s.destroy();
 });
+
+test('"on air" lines record what this copy is actually sending to Discord', () => {
+  const guild = fakeGuild('logs-onair');
+  const s = new GuildSession({}, guild);
+  s.connection = { state: { status: 'ready' }, destroy() {} };
+  const src = { label: 'Christmas [soundcloud:6736771] from 0s', hasData: true, startedEmitted: true, finished: false, read: (n) => Buffer.alloc(n), destroy() {}, once() {} };
+  s.mixer.setMusic(src);
+  for (let k = 0; k < 150; k++) s.mixer.nextFrame();
+  s.logOnAir();
+  assert.match(read(ACTIVITY), /on air: "Christmas \[soundcloud:6736771\] from 0s" sent 3s, voice=ready/);
+  s.audioPlayer.subscribers = [{}, {}];
+  s.logOnAir();
+  assert.match(read(ACTIVITY), /BUG: audio player has 2 subscriptions/);
+  s.audioPlayer.subscribers = [];
+  s.connection = null;
+  s.destroy();
+});

@@ -49,11 +49,18 @@ function humanMembers(channel) {
   return [];
 }
 
+// How many GuildSessions exist per guild in this process. Must be 1: two would mean two mixers and two
+// audio players for one server, which could play two songs (a pattern seen in other bots' bug reports).
+const sessionsPerGuild = new Map();
+
 class GuildSession extends EventEmitter {
   constructor(client, guild) {
     super();
     this.client = client;
     this.guild = guild;
+    const n = (sessionsPerGuild.get(guild.id) || 0) + 1;
+    sessionsPerGuild.set(guild.id, n);
+    if (n > 1 && client?.user) log.error(`BUG: ${n} sessions for one server (${guild.name}) in this process`);
     const st = store.settings(guild.id);
     this.mixer = new Mixer({ volume: st.volume, duckLevel: config.duckLevel, duckMode: config.duckMode, voiceVolume: config.voiceVolume });
     this.player = new MusicPlayer({ guildId: guild.id, mixer: this.mixer });
@@ -99,6 +106,10 @@ class GuildSession extends EventEmitter {
     // Every time the mixer's music source changes. Two different songs alternating here = a bug in
     // this copy; alternating songs with NO line here = another copy of Fig on the same token.
     this.mixer.on('musicChanged', (label) => log.info(`mixer music -> ${label || 'nothing'}`));
+    // "On air" record: every 15 s while music is going out, what THIS copy is sending to Discord.
+    // If people hear a song that isn't in these lines, the audio came from somewhere else.
+    this.onAirTimer = setInterval(() => this.logOnAir(), 15000);
+    this.onAirTimer.unref?.();
     this.mixer.on('warn', (m) => log.warn(m));
 
     this.player.on('nowPlaying', (e) => this.onNowPlaying(e));
@@ -459,6 +470,14 @@ class GuildSession extends EventEmitter {
     return this.speechChain;
   }
 
+  logOnAir() {
+    if (!this.connection || !this.mixer.music || !this.mixer.musicAudible()) return;
+    const subs = this.audioPlayer.subscribers?.length ?? '?';
+    const line = `on air: "${this.mixer.music.label}" sent ${Math.round((this.mixer.musicFrames || 0) / 50)}s, voice=${this.connection.state?.status} player=${this.audioPlayer.state?.status} subscriptions=${subs} #${this.guild.channels.cache.get(this.voiceChannelId)?.name || this.voiceChannelId}`;
+    if (typeof subs === 'number' && subs > 1) log.error(`BUG: audio player has ${subs} subscriptions. ${line}`);
+    else log.info(line);
+  }
+
   /**
    * Reply to one person: text in chat (or as the reply to their command) and spoken in the call.
    */
@@ -606,6 +625,8 @@ class GuildSession extends EventEmitter {
 
   destroy() {
     this.destroyed = true;
+    clearInterval(this.onAirTimer);
+    sessionsPerGuild.set(this.guild.id, Math.max(0, (sessionsPerGuild.get(this.guild.id) || 1) - 1));
     sources.events.off('down', this.onSourceDownBound);
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
