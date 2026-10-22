@@ -35,6 +35,7 @@ class Mixer extends EventEmitter {
     this.volumeGain = this.volumeTarget;
     this.duckGain = 1;
     this.duckHoldUntil = 0;
+    this.duckHolds = new Set(); // open-ended holds (duckFor), each with a safety expiry
     this.idle = true;
     this.idleFrames = 0;
     this.framesOut = 0;
@@ -93,6 +94,25 @@ class Mixer extends EventEmitter {
     this.duckHoldUntil = Math.max(this.duckHoldUntil, Date.now() + ms);
   }
 
+  /**
+   * Keep music ducked until the returned release() is called (or maxMs passes, as a safety net).
+   * Used while Fig thinks about a request and then answers it, so the music goes down once and comes
+   * back once. A fixed-length hold used to run out while Grok was still answering: down, up, down.
+   */
+  duckFor(reason, maxMs = 15000) {
+    const hold = { reason, until: Date.now() + maxMs };
+    this.duckHolds.add(hold);
+    return () => this.duckHolds.delete(hold);
+  }
+
+  heldDucked(now = Date.now()) {
+    for (const h of this.duckHolds) {
+      if (h.until > now) return true;
+      this.duckHolds.delete(h);
+    }
+    return false;
+  }
+
   // ---- engine -----------------------------------------------------------
   musicAudible() {
     const m = this.music;
@@ -115,7 +135,8 @@ class Mixer extends EventEmitter {
 
   /** Produce the next 20 ms of PCM. */
   nextFrame() {
-    const ducking = this.voiceActive || Date.now() < this.duckHoldUntil;
+    const now = Date.now();
+    const ducking = this.voiceActive || now < this.duckHoldUntil || this.heldDucked(now);
     const duckTarget = ducking ? this.duckLevel : 1;
     const prevDuck = this.duckGain;
     // Duck quickly (~120 ms), come back gently (~400 ms).

@@ -218,11 +218,22 @@ class Brain {
   }
 
   /** Full model round: decide, call tools, reply. */
-  async think(member, text, { named = false, mode = this.settings().mode, chime = false, source = 'voice', reply = null } = {}) {
+  async think(member, text, opts = {}) {
+    // Music stays down from the moment Fig starts on a spoken request until its answer has been said
+    // (or it decided to say nothing): one dip, not down-up-down while Grok and the voice take their time.
+    const duck = !opts.chime && (opts.source || 'voice') === 'voice';
+    const release = duck ? this.session.mixer.duckFor(`answering ${member.displayName}`) : () => {};
+    try {
+      return await this._think(member, text, opts);
+    } finally {
+      release();
+    }
+  }
+
+  async _think(member, text, { named = false, mode = this.settings().mode, chime = false, source = 'voice', reply = null } = {}) {
     const s = this.session;
     const system = this.buildSystem(member, { mode, named });
     const messages = [{ role: 'system', content: system }, ...s.memory.exchanges.slice(-8), { role: 'user', content: `${member.displayName}: ${text}` }];
-    if (!chime && source === 'voice') s.mixer.holdDuck(1500);
     let result;
     try {
       log.info(`asking Grok for ${member.displayName} (source=${source}, mode=${mode}, named=${named}): "${text}"`);
