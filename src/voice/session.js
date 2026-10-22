@@ -487,6 +487,7 @@ class GuildSession extends EventEmitter {
       mode: st.mode,
       volume: st.volume,
       paused: this.player.paused,
+      links: cur ? require('../music/links').sourceLinks(cur.entry) : null,
       request: cur ? { asked: cur.entry.asked, by: cur.entry.by || cur.entry.requestedBy || null, status: cur.status, title: cur.track?.title || null, key: cur.track?.key || null, positionSec: Math.round((cur.source?.positionMs || 0) / 1000) } : null,
       onAir: music && this.mixer.musicAudible() ? { label: music.label, sentSec: Math.round((this.mixer.musicFrames || 0) / 50) } : null,
       queue: this.player.queue.items.slice(0, 25).map((e) => e.asked || e.title),
@@ -557,7 +558,7 @@ class GuildSession extends EventEmitter {
   onNowPlaying(entry) {
     if (entry.via === 'dj') this.dj.onPickResult(true);
     const who = entry.via === 'dj' ? `DJ (${this.dj.mood})` : `requested by ${entry.requestedBy?.name || 'someone'}`;
-    this.postText(`Now playing: **${entry.title}**${entry.channel ? ` - ${entry.channel}` : ''} (${who})`);
+    this.postText(`Now playing: **${entry.title}**${entry.channel ? ` - ${entry.channel}` : ''} (${who})${require('../music/links').chatLinks(entry)}`);
     if (config.djTalk && entry.via === 'dj') this.speak(`Here's ${entry.title}.`);
   }
 

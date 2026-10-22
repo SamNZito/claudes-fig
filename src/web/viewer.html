@@ -41,6 +41,7 @@
 .fv .l.talk { border-left-color: var(--green); }
 .fv .t, .fv .w { color: var(--muted); }
 .fv .s { color: var(--green); font-weight: 600; }
+.fv a { color: var(--green); }
 .fv .fv-foot { padding: 8px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 </style>
 
@@ -172,6 +173,12 @@
   });
 
   // ---- status cards ----
+  // Where the song is coming from: the page actually playing, and the Spotify song it was matched to.
+  const link = (url, text) => (/^https?:\/\//.test(url || '') ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(text)} ↗</a>` : '');
+  function fromLinks(l) {
+    if (!l || (!l.playing && !l.spotify)) return '';
+    return [l.playing && link(l.playing.url, l.playing.site), l.spotify ? link(l.spotify, 'Spotify match') : '<span class="fv-muted">no Spotify match</span>'].filter(Boolean).join(' · ');
+  }
   const kv = (pairs) => pairs.filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('');
   function down(why) {
     q1('.fv-copiesCard').className = 'fv-card fv-copiesCard';
@@ -218,6 +225,7 @@
         ['Voice', `${esc(v.voiceChannel ? '#' + v.voiceChannel : '-')} <span class="fv-pill ${v.voice === 'ready' ? 'ok' : 'warn'}">${esc(v.voice)}</span>${v.standby ? ' <span class="fv-pill bad">standing by</span>' : ''}`],
         ['On air', air ? `<span class="fv-big">${esc(air.label)}</span> <span class="fv-muted">${esc(air.sentSec)}s sent</span>${mismatch ? ' <span class="fv-pill bad">differs from request</span>' : ''}` : '<span class="fv-muted">nothing</span>'],
         ['Request', r ? `${esc(r.asked)} <span class="fv-pill">${esc(r.status)}</span> <span class="fv-muted">${esc(r.positionSec)}s</span>` : ''],
+        ['From', fromLinks(v.links)],
         ['Queue', v.queue?.length ? esc(v.queue.slice(0, 5).join(' · ')) + (v.queue.length > 5 ? ` <span class="fv-muted">+${v.queue.length - 5}</span>` : '') : '<span class="fv-muted">empty</span>'],
         ['Player', `${esc(v.audioPlayer)}${v.subscriptions > 1 ? ' <span class="fv-pill bad">' + v.subscriptions + ' subscriptions</span>' : ''}${v.paused ? ' <span class="fv-pill warn">paused</span>' : ''}`],
         ['Mode', `${esc(v.mode)} · volume ${esc(v.volume)}%${v.dj ? ` · DJ ${esc(v.dj)}` : ''}`],

@@ -156,7 +156,9 @@ function nowPlaying(ctx) {
   const np = ctx.session.player.nowPlaying();
   if (!np) return ok("Nothing's playing right now.");
   const st = np.status === 'loading' ? 'Loading' : np.paused ? 'Paused' : 'Now playing';
-  return ok(`${st}: ${np.entry.title}.`, { text: `${st}: ${fmtEntry(np.entry)}\n${np.entry.url}` });
+  const { playing, spotify } = require('./music/links').sourceLinks(np.entry);
+  const from = [playing && `Playing from ${playing.site}: <${playing.url}>`, spotify && `Spotify match: <${spotify}>`].filter(Boolean).join('\n');
+  return ok(`${st}: ${np.entry.title}.`, { text: `${st}: ${fmtEntry(np.entry)}${from ? `\n${from}` : ''}` });
 }
 
 function volume(ctx, { level, change }) {

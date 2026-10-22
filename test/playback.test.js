@@ -89,6 +89,13 @@ test('#1 Spotify finds the real song; the SoundCloud copy plays; "now playing" u
   assert.ok(await waitFor(() => events.now.length === 1));
   assert.match(events.now[0].title, /Please Come Home for Christmas/);
   assert.strictEqual(events.now[0].channel, 'Eagles');
+  // Where it comes from: the SoundCloud page actually playing, and the Spotify song it matched.
+  const { sourceLinks, chatLinks } = require('../src/music/links');
+  const l = sourceLinks(events.now[0]);
+  assert.equal(l.playing.site, 'SoundCloud');
+  assert.match(l.playing.url, /^https:\/\/soundcloud\.com\/fake\//);
+  assert.equal(l.spotify, 'https://open.spotify.com/track/sp1');
+  assert.match(chatLinks(events.now[0]), /^ · \[SoundCloud\]\(<https:\/\/soundcloud\.com\/fake\/[^>]+>\) · \[Spotify match\]\(<https:\/\/open\.spotify\.com\/track\/sp1>\)$/);
   const scSearches = ytCalls().filter((a) => a.some((x) => /^scsearch/.test(x))).map((a) => a[a.length - 1]);
   assert.ok(scSearches.some((q) => /Eagles/.test(q)), `searched SoundCloud with the artist: ${scSearches}`);
   assert.strictEqual(youtubeCalls().length, 0);

@@ -465,7 +465,7 @@ class MusicPlayer extends EventEmitter {
     entry.copies++;
     // What people see is the copy that is actually playing; what they asked for stays in entry.asked.
     // With Spotify info, show the real song name; otherwise the upload's.
-    Object.assign(entry, { key: track.key, id: track.id, url: track.url, duration: track.duration || entry.duration, copyTitle: track.title });
+    Object.assign(entry, { key: track.key, id: track.id, url: track.url, pageUrl: res.probe?.pageUrl || track.url, duration: track.duration || entry.duration, copyTitle: track.title });
     if (!entry.meta) Object.assign(entry, { title: track.title, channel: track.channel || '' });
     const source = new TrackSource(track, { startSec, infoPath: res.probe.infoPath });
     cur.source = source;
@@ -478,7 +478,11 @@ class MusicPlayer extends EventEmitter {
       sources.markOk(src);
       if (startSec === 0) {
         this._recordHistory(cur, 'played');
-        log.info(`now playing "${track.title}" ${track.key} ${Math.round(track.duration || 0)}s for "${entry.asked}" (copy ${entry.copies})`);
+        const { playing, spotify } = require('./links').sourceLinks(entry);
+        log.info(
+          `now playing "${track.title}" ${track.key} ${Math.round(track.duration || 0)}s for "${entry.asked}" (copy ${entry.copies})` +
+            ` from ${playing ? `${playing.site} ${playing.url}` : 'an unknown page'}${spotify ? ` matched to Spotify ${spotify}` : ' (no Spotify match)'}`,
+        );
         // One announcement per request, even if a bad copy had to be swapped for a good one.
         if (!entry.announced) {
           entry.announced = true;

@@ -92,7 +92,7 @@ function probe(track, { timeoutMs = config.probeTimeoutSec * 1000 } = {}) {
         const infoPath = path.join(PROBE_DIR, `${safe}-${Date.now()}.json`);
         fs.writeFileSync(infoPath, line);
         cleanupProbes();
-        resolve({ ok: true, source, infoPath, duration, formatId, title: info.title || track.title, at: Date.now() });
+        resolve({ ok: true, source, infoPath, duration, formatId, title: info.title || track.title, pageUrl: info.webpage_url || null, at: Date.now() });
       } catch (e) {
         resolve({ ok: false, source, kind: 'unknown', reason: `could not save probe: ${e.message}` });
       }
