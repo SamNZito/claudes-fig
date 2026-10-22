@@ -4,7 +4,9 @@
 //   - Paste a new bot token -> it is saved to data/discord-token (owner-only file) and Fig (re)starts.
 //   - Token already saved -> just press Start. Stop and Restart too.
 //   - Shows how many supervisors / bots / strays are running on this machine, the heartbeat, and
-//     Fig's live log page (src/web/server.js) underneath, proxied at /fig/.
+//     the live log underneath. The panel reads the log files itself (same machine), so the log shows
+//     even while Fig is stopped or crashing. Fig's live status (what's on air, other copies) comes from
+//     Fig's own status endpoint on 127.0.0.1. Nothing is put in a frame: hosts often forbid framing.
 //
 // It runs as its own small process (npm run panel), separate from Fig, so it stays up while Fig is
 // stopped or restarting. Start launches scripts/supervise.js detached, exactly like
@@ -40,7 +42,12 @@ function createPanel({
     stopped: path.join(dataDir, 'fig.stopped'),
     out: path.join(logsDir, 'supervise.out'),
   };
-  const page = fs.readFileSync(path.join(__dirname, 'panel.html'), 'utf8');
+  const { renderPage, logsResponse } = require('./server');
+  const shell = fs.readFileSync(path.join(__dirname, 'panel.html'), 'utf8');
+  const page = renderPage(shell, { status: 'api/fig-status', logs: 'api/logs' });
+  const loginPage = shell.replace('<!--VIEWER-->', '').replace('<body>', '<body data-login="1">');
+  const logsPage = renderPage(fs.readFileSync(path.join(__dirname, 'page.html'), 'utf8'), { status: 'api/fig-status', logs: 'api/logs' });
+  const logFiles = { fig: path.join(logsDir, 'fig.log'), conversation: path.join(logsDir, 'conversation.log'), crash: path.join(logsDir, 'crash.log') };
   const cookieValue = key ? crypto.createHash('sha256').update(`fig-panel:${key}`).digest('hex') : '';
   let busy = null; // one start/stop at a time
 
@@ -253,28 +260,24 @@ function createPanel({
     });
   }
 
-  function proxyFig(req, res, url) {
-    const target = url.pathname.replace(/^\/fig/, '') || '/';
-    const qs = new URLSearchParams(url.search);
-    qs.delete('key');
-    if (figKey) qs.set('key', figKey);
-    const q = qs.toString();
-    const up = http.request(
-      { host: '127.0.0.1', port: figPort, path: `${target}${q ? `?${q}` : ''}`, method: 'GET', headers: { accept: req.headers.accept || '*/*' } },
-      (r) => {
-        res.writeHead(r.statusCode, { 'content-type': r.headers['content-type'] || 'text/plain', 'cache-control': 'no-store' });
-        r.pipe(res);
-      },
-    );
-    up.on('error', () => {
-      if (res.headersSent) return res.end();
-      res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(
-        '<body style="font:15px system-ui;padding:24px;color:#6b665e;background:transparent">Fig isn\'t running, so there is no live log yet. Press Start.</body>',
-      );
+  /** Fig's live status (on air, other copies), from Fig's own status endpoint on this machine. */
+  function figStatus() {
+    return new Promise((resolve) => {
+      const q = figKey ? `?key=${encodeURIComponent(figKey)}` : '';
+      const req = http.get({ host: '127.0.0.1', port: figPort, path: `/api/status${q}`, timeout: 3000 }, (r) => {
+        let body = '';
+        r.on('data', (d) => (body += d));
+        r.on('end', () => {
+          try {
+            resolve(r.statusCode === 200 ? JSON.parse(body) : { down: true, why: `Fig's status answered ${r.statusCode}.` });
+          } catch {
+            resolve({ down: true, why: "Fig's status answer was unreadable." });
+          }
+        });
+      });
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+      req.on('error', () => resolve({ down: true, why: alive(readPid(files.figPid)) ? 'Fig is starting up.' : 'Press Start to run it.' }));
     });
-    req.on('close', () => up.destroy());
-    up.end();
   }
 
   const server = http.createServer(async (req, res) => {
@@ -284,6 +287,10 @@ function createPanel({
       res.end(JSON.stringify(obj));
     };
     try {
+      if (url.pathname === '/favicon.ico') {
+        res.writeHead(204);
+        return res.end();
+      }
       if (req.method === 'POST' && url.pathname === '/login') {
         const k = new URLSearchParams(await body(req)).get('key') || '';
         const ok = key && k.length === key.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(key));
@@ -296,22 +303,21 @@ function createPanel({
         return res.end();
       }
       if (!authed(req)) {
-        if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/fig/')) return send(401, { message: 'Log in first.' });
+        if (url.pathname.startsWith('/api/') || url.pathname === '/logs') return send(401, { message: 'Log in first.' });
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        return res.end(page.replace('<body>', '<body data-login="1">'));
+        return res.end(loginPage);
       }
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(page);
       }
       if (req.method === 'GET' && url.pathname === '/api/state') return send(200, state());
-      if (url.pathname.startsWith('/fig/') || url.pathname === '/fig') {
-        if (url.pathname === '/fig') {
-          res.writeHead(301, { location: 'fig/' });
-          return res.end();
-        }
-        return proxyFig(req, res, url);
+      if (req.method === 'GET' && url.pathname === '/logs') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(logsPage);
       }
+      if (req.method === 'GET' && url.pathname === '/api/logs') return send(200, logsResponse(url, logFiles));
+      if (req.method === 'GET' && url.pathname === '/api/fig-status') return send(200, await figStatus());
       if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
         // Only this page's own script can call these (custom header => no cross-site form posts).
         if (req.headers['x-fig-panel'] !== '1') return send(403, { message: 'Use the panel page.' });

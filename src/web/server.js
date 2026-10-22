@@ -61,6 +61,48 @@ function tail(file, { max = 400, keep = () => true } = {}) {
   }
 }
 
+/**
+ * Complete lines written since byte `offset` (for polling). Returns the new offset as `size`.
+ * If the file got smaller it was rotated: `reset` tells the page to reload.
+ */
+function readSince(file, offset, { keep = () => true, maxBytes = 1024 * 1024 } = {}) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    if (size < offset) return { lines: [], size, reset: true };
+    const len = Math.min(size - offset, maxBytes);
+    if (len <= 0) return { lines: [], size: offset };
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, offset);
+    const end = buf.lastIndexOf(0x0a);
+    if (end < 0) return { lines: [], size: offset }; // a line is still being written
+    const lines = buf.subarray(0, end).toString('utf8').split('\n').filter((l) => l && keep(l));
+    return { lines, size: offset + end + 1 };
+  } catch {
+    return { lines: [], size: 0, reset: offset > 0 };
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/** GET /api/logs for both Fig's page and the control panel. `files` maps fig/conversation/crash to paths. */
+function logsResponse(url, files) {
+  const file = files[url.searchParams.get('file')] || files.fig;
+  const keep = filterFor(url.searchParams.get('view'), url.searchParams.get('q'));
+  const since = url.searchParams.get('since');
+  if (since !== null && since !== '') return { file: path.basename(file), ...readSince(file, Number(since) || 0, { keep }) };
+  const max = Math.max(1, Math.min(5000, Number(url.searchParams.get('lines')) || 400));
+  const { lines, size } = tail(file, { max, keep });
+  return { file: path.basename(file), size, lines };
+}
+
+/** The status + log viewer (viewer.html), filled with the endpoints it should read. */
+function renderPage(shell, { status, logs }) {
+  const viewer = fs.readFileSync(path.join(__dirname, 'viewer.html'), 'utf8').replaceAll('{{STATUS}}', status).replaceAll('{{LOGS}}', logs);
+  return shell.replace('<!--VIEWER-->', viewer);
+}
+
 function filterFor(view, q) {
   const v = VIEWS[view] || VIEWS.all;
   const needle = String(q || '').toLowerCase();
@@ -74,7 +116,7 @@ function startWebServer({ getStatus, port = Number(process.env.FIG_WEB_PORT ?? 8
     log.error(`not serving the log page on ${host}: set FIG_WEB_KEY first (logs contain what people said)`);
     return null;
   }
-  const page = fs.readFileSync(path.join(__dirname, 'page.html'), 'utf8');
+  const page = renderPage(fs.readFileSync(path.join(__dirname, 'page.html'), 'utf8'), { status: 'api/status', logs: 'api/logs' });
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -87,17 +129,16 @@ function startWebServer({ getStatus, port = Number(process.env.FIG_WEB_PORT ?? 8
       res.end(JSON.stringify(obj));
     };
     try {
+      if (url.pathname === '/favicon.ico') {
+        res.writeHead(204);
+        return res.end();
+      }
       if (url.pathname === '/' || url.pathname === '/index.html') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(page);
       }
       if (url.pathname === '/api/status') return json(getStatus ? getStatus() : {});
-      if (url.pathname === '/api/logs') {
-        const file = FILES[url.searchParams.get('file')] || FILES.fig;
-        const max = Math.max(1, Math.min(5000, Number(url.searchParams.get('lines')) || 400));
-        const { lines, size } = tail(file, { max, keep: filterFor(url.searchParams.get('view'), url.searchParams.get('q')) });
-        return json({ file: path.basename(file), size, lines });
-      }
+      if (url.pathname === '/api/logs') return json(logsResponse(url, FILES));
       if (url.pathname === '/api/stream') return stream(req, res);
       res.writeHead(404, { 'content-type': 'text/plain' });
       res.end('not found');
@@ -152,4 +193,4 @@ function startWebServer({ getStatus, port = Number(process.env.FIG_WEB_PORT ?? 8
   return server;
 }
 
-module.exports = { startWebServer, tail, filterFor, VIEWS };
+module.exports = { startWebServer, tail, readSince, logsResponse, renderPage, filterFor, VIEWS };

@@ -1,0 +1,233 @@
+<!-- Fig's live status + log viewer. Included inline (never in a frame: hosts often forbid framing)
+     by src/web/server.js (Fig's own page) and src/web/panel.js (the control panel).
+     The data-status / data-logs attributes name the JSON endpoints it reads; new log lines are fetched by polling,
+     which works through any host's proxy. -->
+<style>
+.fv { --mono-bg: #fffdf8; --chip: #ece5d9; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); }
+@media (prefers-color-scheme: dark) { .fv { --mono-bg: #1b1a18; --chip: #2c2a26; } }
+.fv * { box-sizing: border-box; }
+.fv [hidden] { display: none !important; }
+.fv .fv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.fv .fv-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; margin: 0; }
+.fv .fv-card h3 { font: 600 17px Georgia, serif; margin: 0 0 8px; }
+.fv .fv-card.ok { background: var(--green-bg); border-color: var(--green); }
+.fv .fv-card.bad { background: var(--red-bg); border-color: var(--red); }
+.fv .fv-card.bad .fv-big { color: var(--red); }
+.fv .fv-card.ok .fv-big { color: var(--green); }
+.fv .fv-kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; margin: 0; }
+.fv .fv-kv dt { color: var(--muted); }
+.fv .fv-kv dd { margin: 0; overflow-wrap: anywhere; }
+.fv .fv-big { font: 600 15px/1.3 system-ui, sans-serif; overflow-wrap: anywhere; }
+.fv .fv-muted { color: var(--muted); }
+.fv .fv-pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--chip); }
+.fv .fv-pill.ok { background: var(--green); color: var(--on-green); }
+.fv .fv-pill.bad { background: var(--red); color: #fff; }
+.fv .fv-pill.warn { background: var(--amber-bg); color: var(--amber); }
+.fv .fv-logbox { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.fv .fv-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.fv .fv-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.fv .fv-bar button, .fv .fv-bar select, .fv .fv-bar input {
+  font: 13px/1.3 system-ui, sans-serif; border: 1px solid var(--line); background: var(--mono-bg); color: var(--ink);
+  border-radius: 8px; padding: 5px 10px; margin: 0; width: auto; cursor: pointer;
+}
+.fv .fv-tabs button[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: var(--on-green); }
+.fv .fv-bar input { flex: 1 1 160px; min-width: 0; cursor: text; }
+.fv .fv-follow[aria-pressed="false"] { opacity: .65; }
+.fv .fv-log { height: 62vh; min-height: 300px; overflow: auto; background: var(--mono-bg); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 0; }
+.fv .l { padding: 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid transparent; }
+.fv .l:hover { background: var(--chip); }
+.fv .l.WARN { border-left-color: var(--amber); }
+.fv .l.ERROR { border-left-color: var(--red); background: var(--red-bg); }
+.fv .l.talk { border-left-color: var(--green); }
+.fv .t, .fv .w { color: var(--muted); }
+.fv .s { color: var(--green); font-weight: 600; }
+.fv .fv-foot { padding: 8px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+</style>
+
+<div class="fv" data-status="{{STATUS}}" data-logs="{{LOGS}}">
+  <div class="fv-grid">
+    <section class="fv-card fv-copiesCard"><h3>Other copies</h3><div class="fv-copies fv-muted">Loading…</div></section>
+    <section class="fv-card"><h3>This process</h3><dl class="fv-kv fv-copy"></dl></section>
+  </div>
+  <div class="fv-grid fv-servers"></div>
+
+  <section class="fv-logbox">
+    <div class="fv-bar">
+      <div class="fv-tabs" role="group" aria-label="What to show">
+        <button type="button" data-view="all" aria-pressed="true">Everything</button>
+        <button type="button" data-view="talk">Talk</button>
+        <button type="button" data-view="music">Music</button>
+        <button type="button" data-view="onair">On air</button>
+        <button type="button" data-view="problems">Problems</button>
+        <button type="button" data-view="copies">Copies</button>
+      </div>
+      <select class="fv-file" aria-label="Log file">
+        <option value="fig">fig.log</option>
+        <option value="conversation">conversation.log</option>
+        <option value="crash">crash.log</option>
+      </select>
+      <input class="fv-q" type="search" placeholder="Search (song, name, pid…)" aria-label="Search">
+      <button type="button" class="fv-follow" aria-pressed="true" title="Keep scrolled to the newest line">Follow</button>
+    </div>
+    <div class="fv-log" aria-live="off"></div>
+    <div class="fv-foot"><span class="fv-count">…</span><span class="fv-live">…</span></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const root = document.currentScript.previousElementSibling;
+  const q1 = (sel) => root.querySelector(sel);
+  const key = new URLSearchParams(location.search).get('key');
+  const api = (p, params = {}) => {
+    const u = new URL(p, location.href);
+    for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) u.searchParams.set(k, v);
+    if (key) u.searchParams.set('key', key);
+    return u.toString();
+  };
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const STATUS = root.dataset.status;
+  const LOGS = root.dataset.logs;
+  let view = 'all', file = 'fig', q = '', follow = true, shown = 0, offset = 0, gen = 0;
+  const box = q1('.fv-log');
+
+  function render(line) {
+    const m = line.match(/^(\S+) (DEBUG|INFO|WARN|ERROR)\s+(\S+) \[([^\]]+)\] (.*)$/);
+    const div = document.createElement('div');
+    if (m) {
+      div.className = `l ${m[2]}${m[4] === 'talk' ? ' talk' : ''}`;
+      const t = m[1].replace('T', ' ').replace(/\.\d+Z$/, '');
+      div.innerHTML = `<span class="t">${esc(t)}</span> <span class="w">${esc(m[3])}</span> <span class="s">[${esc(m[4])}]</span> ${esc(m[5])}`;
+    } else {
+      div.className = 'l';
+      div.textContent = line;
+    }
+    return div;
+  }
+  function count() {
+    q1('.fv-count').textContent = `${shown} line${shown === 1 ? '' : 's'} · ${file}.log · ${view}${q ? ` · "${q}"` : ''}`;
+  }
+  function add(lines) {
+    if (!lines.length) return;
+    const frag = document.createDocumentFragment();
+    for (const l of lines) frag.appendChild(render(l));
+    box.appendChild(frag);
+    shown += lines.length;
+    while (box.childElementCount > 3000) { box.firstElementChild.remove(); shown--; }
+    count();
+    if (follow) box.scrollTop = box.scrollHeight;
+  }
+  async function load() {
+    const my = ++gen;
+    try {
+      const r = await fetch(api(LOGS, { file, view, q, lines: 1500 }), { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      if (my !== gen) return;
+      box.textContent = '';
+      shown = 0;
+      offset = d.size || 0;
+      add(d.lines || []);
+      if (!d.lines?.length) q1('.fv-count').textContent = `Nothing yet in ${file}.log for this view.`;
+      q1('.fv-live').textContent = 'live';
+    } catch (e) {
+      if (my === gen) q1('.fv-count').textContent = `Could not read the log (${e.message}).`;
+    }
+  }
+  // New lines since the last read. Polling (not a stream) so it works through any proxy.
+  async function poll() {
+    const my = gen;
+    try {
+      const r = await fetch(api(LOGS, { file, view, q, since: offset }), { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      if (my !== gen) return;
+      if (d.reset) return load(); // the file was rotated
+      offset = d.size;
+      add(d.lines || []);
+      q1('.fv-live').textContent = 'live';
+    } catch {
+      q1('.fv-live').textContent = 'reconnecting…';
+    }
+  }
+
+  root.querySelectorAll('.fv-tabs button').forEach((b) =>
+    b.addEventListener('click', () => {
+      root.querySelectorAll('.fv-tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      view = b.dataset.view;
+      load();
+    }),
+  );
+  q1('.fv-file').addEventListener('change', (e) => { file = e.target.value; load(); });
+  let qt;
+  q1('.fv-q').addEventListener('input', (e) => { clearTimeout(qt); qt = setTimeout(() => { q = e.target.value.trim(); load(); }, 250); });
+  q1('.fv-follow').addEventListener('click', (e) => {
+    follow = !follow;
+    e.currentTarget.setAttribute('aria-pressed', String(follow));
+    if (follow) box.scrollTop = box.scrollHeight;
+  });
+  box.addEventListener('wheel', () => {
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    if (follow !== atBottom) { follow = atBottom; q1('.fv-follow').setAttribute('aria-pressed', String(follow)); }
+  });
+
+  // ---- status cards ----
+  const kv = (pairs) => pairs.filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('');
+  function down(why) {
+    q1('.fv-copiesCard').className = 'fv-card fv-copiesCard';
+    q1('.fv-copies').innerHTML = `<div class="fv-big">Fig isn't running</div><div class="fv-muted" style="font-size:13px;margin-top:4px">${esc(why)} The log below still shows what happened, including crash.log.</div>`;
+    q1('.fv-copy').innerHTML = kv([['Status', '<span class="fv-pill bad">not running</span>']]);
+    q1('.fv-servers').innerHTML = '';
+    const who = document.getElementById('who');
+    if (who) who.textContent = 'Fig is not running';
+  }
+  async function status() {
+    let s;
+    try {
+      const r = await fetch(api(STATUS), { cache: 'no-store' });
+      s = await r.json();
+    } catch {
+      return down('No answer from Fig.');
+    }
+    if (!s || s.down) return down(s?.why || 'No answer from Fig.');
+    const c = s.copy || {};
+    const who = document.getElementById('who');
+    if (who) who.textContent = `${c.host}:${c.pid} · ${c.sha}`;
+    const g = s.gateway || {};
+    q1('.fv-copy').innerHTML = kv([
+      ['Machine', esc(c.host)], ['Process', esc(c.pid)], ['Code', esc(c.sha)], ['Up', esc(c.uptime)],
+      ['Discord', g.ready ? `<span class="fv-pill ok">connected</span> ${esc(g.user || '')}` : '<span class="fv-pill bad">not connected</span>'],
+      ['Session', `<span class="fv-muted">${esc(g.session || '-')}</span>`], ['Ping', g.ping >= 0 ? `${esc(g.ping)} ms` : ''],
+    ]);
+    const cp = s.copies || { total: 0, signals: {} };
+    const card = q1('.fv-copiesCard');
+    if (!cp.total) {
+      card.className = 'fv-card fv-copiesCard ok';
+      q1('.fv-copies').innerHTML = `<div class="fv-big">No sign of another copy</div><div class="fv-muted" style="font-size:13px;margin-top:4px">Fig watches for its bot account in voice under another session, slash commands someone else already answered, and messages it didn't send.</div>`;
+    } else {
+      card.className = 'fv-card fv-copiesCard bad';
+      const sig = cp.signals || {};
+      q1('.fv-copies').innerHTML = `<div class="fv-big">Another copy is running on this token</div>
+        <dl class="fv-kv" style="margin-top:6px">${kv([['Voice', sig.voice || 0], ['Commands', sig.command || 0], ['Messages', sig.message || 0], ['Last', esc(cp.last ? `${cp.last.at.replace('T', ' ').slice(0, 19)} ${cp.last.detail}` : '')]])}</dl>`;
+    }
+    q1('.fv-servers').innerHTML = (s.servers || []).map((v) => {
+      const r = v.request;
+      const air = v.onAir;
+      const mismatch = r && air && r.title && !air.label.toLowerCase().startsWith(String(r.title).toLowerCase().slice(0, 12));
+      return `<section class="fv-card${v.standby ? ' bad' : ''}"><h3>${esc(v.server)}</h3><dl class="fv-kv">${kv([
+        ['Voice', `${esc(v.voiceChannel ? '#' + v.voiceChannel : '-')} <span class="fv-pill ${v.voice === 'ready' ? 'ok' : 'warn'}">${esc(v.voice)}</span>${v.standby ? ' <span class="fv-pill bad">standing by</span>' : ''}`],
+        ['On air', air ? `<span class="fv-big">${esc(air.label)}</span> <span class="fv-muted">${esc(air.sentSec)}s sent</span>${mismatch ? ' <span class="fv-pill bad">differs from request</span>' : ''}` : '<span class="fv-muted">nothing</span>'],
+        ['Request', r ? `${esc(r.asked)} <span class="fv-pill">${esc(r.status)}</span> <span class="fv-muted">${esc(r.positionSec)}s</span>` : ''],
+        ['Queue', v.queue?.length ? esc(v.queue.slice(0, 5).join(' · ')) + (v.queue.length > 5 ? ` <span class="fv-muted">+${v.queue.length - 5}</span>` : '') : '<span class="fv-muted">empty</span>'],
+        ['Player', `${esc(v.audioPlayer)}${v.subscriptions > 1 ? ' <span class="fv-pill bad">' + v.subscriptions + ' subscriptions</span>' : ''}${v.paused ? ' <span class="fv-pill warn">paused</span>' : ''}`],
+        ['Mode', `${esc(v.mode)} · volume ${esc(v.volume)}%${v.dj ? ` · DJ ${esc(v.dj)}` : ''}`],
+      ])}</dl></section>`;
+    }).join('');
+  }
+
+  load();
+  setInterval(poll, 2000);
+  status();
+  setInterval(status, 2500);
+})();
+</script>

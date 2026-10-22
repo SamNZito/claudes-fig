@@ -118,10 +118,22 @@ test('with a key, nothing works until you log in, and POSTs need the page header
     assert.equal((await fetch(`${p.url()}/api/state`, { headers: { cookie } })).status, 200);
     const noHeader = await fetch(`${p.url()}/api/start`, { method: 'POST', headers: { cookie } });
     assert.equal(noHeader.status, 403);
-    // Live log proxy answers even while Fig is down.
-    const fig = await fetch(`${p.url()}/fig/`, { headers: { cookie } });
-    assert.equal(fig.status, 502);
-    assert.match(await fig.text(), /Press Start/);
+    // The log is read from disk by the panel itself, so it shows even while Fig is down,
+    // and nothing is framed (hosts often refuse frames).
+    fs.writeFileSync(path.join(p.logsDir, 'crash.log'), '2026-10-21T00:00:00Z pid=1 uncaught exception: boom\n');
+    const logs = await (await fetch(`${p.url()}/api/logs?file=crash`, { headers: { cookie } })).json();
+    assert.ok(logs.lines.some((l) => l.includes('uncaught exception: boom')));
+    const st = await (await fetch(`${p.url()}/api/fig-status`, { headers: { cookie } })).json();
+    assert.equal(st.down, true);
+    assert.match(st.why, /Press Start/);
+    const app = await (await fetch(`${p.url()}/`, { headers: { cookie } })).text();
+    assert.ok(!/<iframe/i.test(app), 'no frames');
+    assert.match(app, /data-logs="api\/logs"/);
+    assert.match(app, /data-status="api\/fig-status"/);
+    const full = await fetch(`${p.url()}/logs`, { headers: { cookie } });
+    assert.equal(full.status, 200);
+    assert.match(await full.text(), /<title>Fig live log<\/title>/);
+    assert.equal((await fetch(`${p.url()}/logs`)).status, 401);
   } finally {
     p.server.close();
     p.restore();

@@ -7,53 +7,24 @@
 <style>
 :root {
   --bg: #f3eee6; --card: #fbf9f4; --ink: #1d1b18; --muted: #6b665e; --line: #e2dbcf;
-  --green: #1f6b45; --green-bg: #e3f0e7; --red: #a33a2b; --red-bg: #f6e3df; --amber: #8a5a00; --amber-bg: #f7ecd4;
-  --mono-bg: #fffdf8; --chip: #ece5d9; --on-green: #fff;
+  --green: #1f6b45; --green-bg: #e3f0e7; --on-green: #fff; --red: #a33a2b; --red-bg: #f6e3df; --amber: #8a5a00; --amber-bg: #f7ecd4;
+  --chip: #ece5d9;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #171614; --card: #201f1c; --ink: #ece8e1; --muted: #a39d92; --line: #34312c;
-    --green: #6cc596; --green-bg: #1d2e24; --red: #f08c7c; --red-bg: #3a221e; --amber: #e5b65c; --amber-bg: #3a2f19;
-    --mono-bg: #1b1a18; --chip: #2c2a26; --on-green: #10241a;
+    --green: #6cc596; --green-bg: #1d2e24; --on-green: #10241a; --red: #f08c7c; --red-bg: #3a221e; --amber: #e5b65c; --amber-bg: #3a2f19;
+    --chip: #2c2a26;
   }
 }
 * { box-sizing: border-box; }
-[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 16px 40px; }
 header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
-.logo { width: 44px; height: 44px; border-radius: 50%; background: var(--green); display: grid; place-items: center; color: var(--on-green); font-size: 20px; }
+.logo { width: 44px; height: 44px; border-radius: 50%; background: var(--green); display: grid; place-items: center; color: var(--on-green); font-size: 18px; flex: none; }
 h1 { font: 600 30px/1 Georgia, "Times New Roman", serif; margin: 0; }
 .sub { color: var(--muted); font-size: 13px; }
 .who { margin-left: auto; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--chip); padding: 5px 9px; border-radius: 999px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; }
-.card h2 { font: 600 17px Georgia, serif; margin: 0 0 8px; }
-.card.ok { background: var(--green-bg); border-color: var(--green); }
-.card.bad { background: var(--red-bg); border-color: var(--red); }
-.card.bad .big { color: var(--red); }
-.card.ok .big { color: var(--green); }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; }
-.kv dt { color: var(--muted); }
-.kv dd { margin: 0; overflow-wrap: anywhere; }
-.big { font: 600 15px/1.3 system-ui, sans-serif; overflow-wrap: anywhere; }
-.muted { color: var(--muted); }
-.pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--chip); }
-.pill.ok { background: var(--green); color: var(--on-green); } .pill.bad { background: var(--red); color: #fff; } .pill.warn { background: var(--amber-bg); color: var(--amber); }
-.logbox { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
-.tabs button, .bar select, .bar input, .tog { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--mono-bg); color: var(--ink); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
-.tabs button[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: var(--on-green); }
-.bar input { flex: 1 1 160px; min-width: 0; cursor: text; }
-.tog[aria-pressed="false"] { opacity: .65; }
-#log { height: 62vh; min-height: 300px; overflow: auto; background: var(--mono-bg); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 0; }
-.l { padding: 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid transparent; }
-.l:hover { background: var(--chip); }
-.l.WARN { border-left-color: var(--amber); } .l.ERROR { border-left-color: var(--red); background: var(--red-bg); }
-.l.talk { border-left-color: var(--green); }
-.t { color: var(--muted); } .s { color: var(--green); font-weight: 600; } .w { color: var(--muted); }
-.foot { padding: 8px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -61,190 +32,9 @@ h1 { font: 600 30px/1 Georgia, "Times New Roman", serif; margin: 0; }
   <header>
     <div class="logo" aria-hidden="true">((•))</div>
     <div><div class="sub">Discord voice</div><h1>Fig</h1></div>
-    <span class="who" id="who" title="The copy of Fig serving this page">…</span>
+    <span class="who" id="who" title="The copy of Fig this page is reading">…</span>
   </header>
-
-  <div class="grid" id="cards">
-    <section class="card" id="copiesCard"><h2>Other copies</h2><div id="copies" class="muted">Loading…</div></section>
-    <section class="card"><h2>This copy</h2><dl class="kv" id="copy"></dl></section>
-  </div>
-  <div class="grid" id="servers"></div>
-
-  <section class="logbox">
-    <div class="bar">
-      <div class="tabs" role="group" aria-label="What to show">
-        <button data-view="all" aria-pressed="true">Everything</button>
-        <button data-view="talk">Talk</button>
-        <button data-view="music">Music</button>
-        <button data-view="onair">On air</button>
-        <button data-view="problems">Problems</button>
-        <button data-view="copies">Copies</button>
-      </div>
-      <select id="file" aria-label="Log file">
-        <option value="fig">fig.log</option>
-        <option value="conversation">conversation.log</option>
-        <option value="crash">crash.log</option>
-      </select>
-      <input id="q" type="search" placeholder="Search (song, name, pid…)" aria-label="Search">
-      <button class="tog" id="follow" aria-pressed="true" title="Keep scrolled to the newest line">Follow</button>
-    </div>
-    <div id="log" aria-live="off"></div>
-    <div class="foot"><span id="count">…</span><span id="live">connecting…</span></div>
-  </section>
+  <!--VIEWER-->
 </div>
-<script>
-(() => {
-  const key = new URLSearchParams(location.search).get('key');
-  // Inside the control panel: the panel already shows the name, so drop this page's header.
-  if (window.self !== window.top || new URLSearchParams(location.search).get('embed')) {
-    document.querySelectorAll('header > :not(.who)').forEach((el) => (el.hidden = true));
-    document.querySelector('.wrap').style.paddingTop = '12px';
-  }
-  const api = (p, params = {}) => {
-    const u = new URL(p, location.href);
-    for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) u.searchParams.set(k, v);
-    if (key) u.searchParams.set('key', key);
-    return u.toString();
-  };
-  const $ = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  const views = {
-    all: () => true,
-    talk: (l) => l.includes('[talk]') || /^\S+ \S+ (HEARD|TYPED|SLASH|SAID|POSTED|REPLY|UNSENT) /.test(l),
-    music: (l) => /\[(music|player|resolve|track|spotify|dj|lookup|search|sources|mixer)\]|mixer music ->|on air:/.test(l),
-    onair: (l) => l.includes('on air:') || l.includes('mixer music ->'),
-    problems: (l) => / (WARN|ERROR) /.test(l) || l.includes('BUG:'),
-    copies: (l) => /ANOTHER COPY|STANDBY|FOREIGN|gateway READY|process started|\[supervise\]|\[instance\]|\[copies\]|BUG:/.test(l),
-  };
-  let view = 'all', file = 'fig', q = '', follow = true, shown = 0;
-  const box = $('log');
-
-  function render(line) {
-    const m = line.match(/^(\S+) (DEBUG|INFO|WARN|ERROR)\s+(\S+) \[([^\]]+)\] (.*)$/);
-    const div = document.createElement('div');
-    if (m) {
-      div.className = `l ${m[2]}${m[4] === 'talk' ? ' talk' : ''}`;
-      const t = m[1].replace('T', ' ').replace(/\.\d+Z$/, '');
-      div.innerHTML = `<span class="t">${esc(t)}</span> <span class="w">${esc(m[3])}</span> <span class="s">[${esc(m[4])}]</span> ${esc(m[5])}`;
-    } else {
-      div.className = 'l';
-      div.textContent = line;
-    }
-    return div;
-  }
-  function keep(line) {
-    return views[view](line) && (!q || line.toLowerCase().includes(q.toLowerCase()));
-  }
-  function add(lines) {
-    const frag = document.createDocumentFragment();
-    for (const l of lines) frag.appendChild(render(l));
-    box.appendChild(frag);
-    shown += lines.length;
-    while (box.childElementCount > 3000) { box.firstElementChild.remove(); shown--; }
-    $('count').textContent = `${shown} line${shown === 1 ? '' : 's'} · ${file}.log · ${view}${q ? ` · "${q}"` : ''}`;
-    if (follow) box.scrollTop = box.scrollHeight;
-  }
-  async function load() {
-    box.textContent = '';
-    shown = 0;
-    try {
-      const r = await fetch(api('api/logs', { file, view, q, lines: 1500 }));
-      const d = await r.json();
-      add(d.lines || []);
-      if (!d.lines?.length) $('count').textContent = `Nothing yet in ${file}.log for this view.`;
-    } catch (e) {
-      $('count').textContent = 'Could not read the log: ' + e.message;
-    }
-  }
-
-  // Live: fig.log streams; the other files are re-read every few seconds.
-  let es = null, poll = null;
-  function live() {
-    if (es) es.close();
-    clearInterval(poll);
-    if (file === 'fig') {
-      es = new EventSource(api('api/stream'));
-      es.onopen = () => ($('live').textContent = 'live');
-      es.onerror = () => ($('live').textContent = 'reconnecting…');
-      es.onmessage = (ev) => {
-        const line = JSON.parse(ev.data);
-        if (keep(line)) add([line]);
-      };
-    } else {
-      $('live').textContent = 'refreshing every 5 s';
-      poll = setInterval(load, 5000);
-    }
-  }
-
-  document.querySelectorAll('.tabs button').forEach((b) =>
-    b.addEventListener('click', () => {
-      document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-      view = b.dataset.view;
-      load();
-    }),
-  );
-  $('file').addEventListener('change', (e) => { file = e.target.value; load(); live(); });
-  let qt;
-  $('q').addEventListener('input', (e) => { clearTimeout(qt); qt = setTimeout(() => { q = e.target.value.trim(); load(); }, 250); });
-  $('follow').addEventListener('click', (e) => {
-    follow = !follow;
-    e.currentTarget.setAttribute('aria-pressed', String(follow));
-    if (follow) box.scrollTop = box.scrollHeight;
-  });
-  box.addEventListener('wheel', () => {
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-    if (follow !== atBottom) { follow = atBottom; $('follow').setAttribute('aria-pressed', String(follow)); }
-  });
-
-  // ---- status cards ----
-  const kv = (pairs) => pairs.filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('');
-  async function status() {
-    let s;
-    try {
-      s = await (await fetch(api('api/status'))).json();
-    } catch {
-      $('who').textContent = 'Fig is not answering';
-      return;
-    }
-    const c = s.copy || {};
-    $('who').textContent = `${c.host}:${c.pid} · ${c.sha}`;
-    const g = s.gateway || {};
-    $('copy').innerHTML = kv([
-      ['Machine', esc(c.host)], ['Process', esc(c.pid)], ['Code', esc(c.sha)], ['Up', esc(c.uptime)],
-      ['Discord', g.ready ? `<span class="pill ok">connected</span> ${esc(g.user || '')}` : '<span class="pill bad">not connected</span>'],
-      ['Session', `<span class="muted">${esc(g.session || '-')}</span>`], ['Ping', g.ping >= 0 ? `${esc(g.ping)} ms` : ''],
-    ]);
-    const cp = s.copies || { total: 0, signals: {} };
-    const card = $('copiesCard');
-    if (!cp.total) {
-      card.className = 'card ok';
-      $('copies').innerHTML = `<div class="big">No sign of another copy</div><div class="muted" style="font-size:13px;margin-top:4px">Fig watches for its bot account in voice under another session, slash commands someone else already answered, and messages it didn't send.</div>`;
-    } else {
-      card.className = 'card bad';
-      const sig = cp.signals || {};
-      $('copies').innerHTML = `<div class="big">Another copy is running on this token</div>
-        <dl class="kv" style="margin-top:6px">${kv([['Voice', sig.voice || 0], ['Commands', sig.command || 0], ['Messages', sig.message || 0], ['Last', esc(cp.last ? `${cp.last.at.replace('T', ' ').slice(0, 19)} ${cp.last.detail}` : '')]])}</dl>`;
-    }
-    $('servers').innerHTML = (s.servers || []).map((v) => {
-      const r = v.request;
-      const air = v.onAir;
-      const mismatch = r && air && r.title && !air.label.toLowerCase().startsWith(String(r.title).toLowerCase().slice(0, 12));
-      return `<section class="card${v.standby ? ' bad' : ''}"><h2>${esc(v.server)}</h2><dl class="kv">${kv([
-        ['Voice', `${esc(v.voiceChannel ? '#' + v.voiceChannel : '-')} <span class="pill ${v.voice === 'ready' ? 'ok' : 'warn'}">${esc(v.voice)}</span>${v.standby ? ' <span class="pill bad">standing by</span>' : ''}`],
-        ['On air', air ? `<span class="big">${esc(air.label)}</span> <span class="muted">${esc(air.sentSec)}s sent</span>${mismatch ? ' <span class="pill bad">differs from request</span>' : ''}` : '<span class="muted">nothing</span>'],
-        ['Request', r ? `${esc(r.asked)} <span class="pill">${esc(r.status)}</span> <span class="muted">${esc(r.positionSec)}s</span>` : ''],
-        ['Queue', v.queue?.length ? esc(v.queue.slice(0, 5).join(' · ')) + (v.queue.length > 5 ? ` <span class="muted">+${v.queue.length - 5}</span>` : '') : '<span class="muted">empty</span>'],
-        ['Player', `${esc(v.audioPlayer)}${v.subscriptions > 1 ? ' <span class="pill bad">' + v.subscriptions + ' subscriptions</span>' : ''}${v.paused ? ' <span class="pill warn">paused</span>' : ''}`],
-        ['Mode', `${esc(v.mode)} · volume ${esc(v.volume)}%${v.dj ? ` · DJ ${esc(v.dj)}` : ''}`],
-      ])}</dl></section>`;
-    }).join('');
-  }
-
-  load();
-  live();
-  status();
-  setInterval(status, 2000);
-})();
-</script>
 </body>
 </html>

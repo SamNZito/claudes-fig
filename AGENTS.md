@@ -26,7 +26,7 @@ You are setting up and running **Fig**, a Discord voice bot (Node.js). The code 
     - the live log.
     Set `FIG_PANEL_KEY` and give that key to the user. The panel listens on `$PORT`. Keep the panel itself always running (that's what the host's "run" should be). The panel starts Fig.
     If you also keep `scripts/ensure-running.sh` in cron, that's fine: it respects Stop.
-    The panel shows Fig's live log page (served by Fig on `127.0.0.1:8790`) at `/fig/`, so that page never needs to be public. Leave `FIG_WEB_HOST` at 127.0.0.1.
+    The panel shows the live log itself: it reads `logs/` from disk and asks Fig for status on `127.0.0.1:8790`. Full page: `/logs`. Leave `FIG_WEB_HOST` at 127.0.0.1. Don't put the panel or the log in an iframe: the host refuses frames (ERR_BLOCKED_BY_RESPONSE).
 11. Make sure your host runs Fig **once**. Run the panel only in the published deployment, and don't run Fig or the panel in the workspace or preview at the same time. A workspace or preview run plus a published deployment, or more than one replica or instance, are two copies on one token, even after a token reset, because each one reads the same `.env`. Run it in exactly one place, set replicas to 1 and turn off autoscaling. The page's "Other copies" card turns red if a second copy exists anywhere.
 12. When something goes wrong, read `logs/fig.log` (everything) and `logs/conversation.log` (what was said). README "Logs" explains the lines.
 

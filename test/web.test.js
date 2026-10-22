@@ -1,10 +1,11 @@
 'use strict';
+process.env.LOG_LEVEL = 'info'; // these tests read info lines back from the log
 // The log page Fig serves: status JSON, filtered log tails, the live stream, and the key check.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const { logger, ACTIVITY } = require('../src/log');
-const { startWebServer, tail, filterFor } = require('../src/web/server');
+const { startWebServer, tail, filterFor, readSince } = require('../src/web/server');
 
 const listening = (srv) => new Promise((r) => (srv.listening ? r() : srv.once('listening', r)));
 const base = (srv) => `http://127.0.0.1:${srv.address().port}`;
@@ -95,4 +96,41 @@ test('each server reports what is on air, the request and the queue', () => {
   assert.equal(st.onAir.sentSec, 2);
   assert.equal(st.mode, 'normal');
   s.destroy();
+});
+
+test('polling returns only complete new lines, and notices rotation', () => {
+  const f = `${ACTIVITY}.sincetest`;
+  fs.writeFileSync(f, 'a on air: 1\nb x\n');
+  try {
+    let r = readSince(f, 0);
+    assert.deepEqual(r.lines, ['a on air: 1', 'b x']);
+    const off = r.size;
+    fs.appendFileSync(f, 'c on air: 2\nd half-writ');
+    r = readSince(f, off, { keep: filterFor('onair') });
+    assert.deepEqual(r.lines, ['c on air: 2']);
+    const off2 = r.size;
+    fs.appendFileSync(f, 'ten\n');
+    r = readSince(f, off2);
+    assert.deepEqual(r.lines, ['d half-written']);
+    fs.writeFileSync(f, 'new file\n'); // rotated: smaller than our offset
+    assert.equal(readSince(f, r.size).reset, true);
+  } finally {
+    fs.unlinkSync(f);
+  }
+});
+
+test("Fig's own page includes the viewer directly, reading its own endpoints", async () => {
+  const srv = startWebServer({ port: 0 });
+  await listening(srv);
+  try {
+    const html = await (await fetch(`${base(srv)}/`)).text();
+    assert.ok(!html.includes('<!--VIEWER-->'));
+    assert.match(html, /class="fv" data-status="api\/status" data-logs="api\/logs"/);
+    const first = await (await fetch(`${base(srv)}/api/logs?lines=5`)).json();
+    logger('music').info('poll-test-line 456');
+    const next = await (await fetch(`${base(srv)}/api/logs?since=${first.size}`)).json();
+    assert.ok(next.lines.some((l) => l.includes('poll-test-line 456')));
+  } finally {
+    srv.close();
+  }
 });

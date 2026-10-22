@@ -165,7 +165,7 @@ Logs rotate at `FIG_LOG_MAX_MB` (50) and keep `FIG_LOG_KEEP` (5) old files.
 - **Token:** paste a new bot token once. It is saved to `data/discord-token` (owner-only, never shown again, never put in the environment), and Fig starts with it. A token saved here wins over `DISCORD_TOKEN` in `.env`.
 - **Start:** when a token is already saved, just press Start. **Stop** and **Restart** are there too. Stop stays stopped: the every-minute `ensure-running.sh` check, boot hooks and the supervisor itself won't start Fig again until Start is pressed.
 - **This copy:** how many supervisors, bots and strays are running on this machine, plus the last heartbeat.
-- **Live log:** Fig's live log page (below) is embedded at `/fig/`.
+- **Live log:** shown right on the panel, and full-page at `/logs`. The panel reads the log files itself, so the log is there even while Fig is stopped or crashing. Fig's live status (what's on air, other copies) comes from Fig on 127.0.0.1. Nothing is put in a frame, because many hosts refuse frames (Chrome shows `ERR_BLOCKED_BY_RESPONSE`). New lines arrive by polling every 2 s, which works through any host's proxy.
 
 The panel is its own small process, so it stays up while Fig is stopped or restarting. It listens on `$PORT` if the host sets one, otherwise on 127.0.0.1:8080. Anywhere but 127.0.0.1 it needs `FIG_PANEL_KEY`: it asks for the key once, then remembers it in a cookie.
 
