@@ -177,16 +177,29 @@ async function webAnswer({ instructions, input, maxTokens = 500 }) {
   return parts.join('\n').trim();
 }
 
+/**
+ * The multipart form for /stt. xAI reads the options only if they come BEFORE the audio:
+ * "file ... Must be the last field in the multipart form." Fig used to send the audio first, so the
+ * model, language and the "Fig" keyterm were likely ignored. Keyterms: max 100, each up to 50 chars.
+ */
+function sttForm(audio, { field = 'file', keyterms = [], language = config.sttLanguage, model = config.sttModel } = {}) {
+  const form = new FormData();
+  if (model) form.append('model', model);
+  if (language) form.append('language', language);
+  const seen = new Set();
+  for (const raw of keyterms) {
+    const k = String(raw || '').trim().slice(0, 50);
+    if (!k || seen.has(k.toLowerCase()) || seen.size >= 100) continue;
+    seen.add(k.toLowerCase());
+    form.append('keyterm', k);
+  }
+  form.append(field, new Blob([audio], { type: 'audio/wav' }), 'speech.wav'); // last, always
+  return form;
+}
+
 /** Speech to text. `audio` is a WAV buffer. */
 async function stt(audio, { keyterms = [], language = config.sttLanguage } = {}) {
-  const build = (field) => {
-    const form = new FormData();
-    form.append(field, new Blob([audio], { type: 'audio/wav' }), 'speech.wav');
-    if (config.sttModel) form.append('model', config.sttModel);
-    if (language) form.append('language', language);
-    for (const k of keyterms) if (k) form.append('keyterm', k);
-    return form;
-  };
+  const build = (field) => sttForm(audio, { field, keyterms, language });
   try {
     const data = await call('/stt', { form: build(sttFileField), timeoutMs: 30000 });
     return String(data.text || '').trim();
@@ -244,4 +257,4 @@ async function ping() {
   return call('/models', { method: 'GET', timeoutMs: 15000 });
 }
 
-module.exports = { chat, chatJson, parseJson, vision, webAnswer, stt, tts, listVoices, ping, GrokError };
+module.exports = { chat, chatJson, parseJson, vision, webAnswer, stt, tts, listVoices, ping, GrokError, sttForm };

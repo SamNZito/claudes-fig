@@ -65,4 +65,15 @@ function detectWake(transcript, name) {
   return { named: false, text: t };
 }
 
-module.exports = { detectWake, norm, lev, variants };
+// Words worth hinting to speech-to-text: the name (with the usual greetings) and the short spoken
+// commands, which are the words most often misheard ("skip" as "kip"). Kept short on purpose: every
+// hint pulls unclear audio toward it. Extra hints: STT_KEYTERMS=word,another phrase
+const COMMAND_TERMS = ['skip', 'pause', 'resume', 'unpause', 'stop', 'queue', 'shuffle', 'volume', 'louder', 'quieter', 'DJ'];
+
+function sttKeyterms(name, extra = []) {
+  const n = String(name || '').trim();
+  const cap = n ? n[0].toUpperCase() + n.slice(1) : '';
+  return [...(cap ? [cap, `Hey ${cap}`, `Okay ${cap}`] : []), ...COMMAND_TERMS, ...extra];
+}
+
+module.exports = { detectWake, norm, lev, variants, sttKeyterms, COMMAND_TERMS };

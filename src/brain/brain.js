@@ -6,7 +6,7 @@
 //   conversation - no wake name needed; anything said could be for Fig (Grok may stay quiet)
 // The one exception in normal mode: a spoken "yes" to a question Fig just asked that person (ban confirmation).
 const grok = require('./grok');
-const { detectWake, norm } = require('./wake');
+const { detectWake, norm, sttKeyterms } = require('./wake');
 const { TOOLS, CHIME_TOOLS, runTool } = require('./tools');
 const actions = require('../actions');
 const { forText } = require('../audio/tts');
@@ -87,7 +87,7 @@ class Brain {
     let text;
     try {
       const t0 = Date.now();
-      text = await grok.stt(wav, { keyterms: [st.wakeName] });
+      text = await grok.stt(wav, { keyterms: sttKeyterms(st.wakeName, config.sttKeyterms) });
       log.info(`STT ${Math.round(durationMs)}ms of speech from ${member.displayName} -> "${text}" in ${Date.now() - t0}ms`);
     } catch (e) {
       log.warn('STT failed:', e.message);

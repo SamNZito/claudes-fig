@@ -52,6 +52,7 @@ const config = {
   ttsVoice: str('TTS_VOICE', 'eve'),
   ttsLanguage: str('TTS_LANGUAGE', 'en'),
   sttLanguage: str('STT_LANGUAGE', 'en'),
+  sttKeyterms: list('STT_KEYTERMS'), // extra words to hint to speech-to-text (Fig's name and commands are always sent)
 
   wakeName: str('WAKE_NAME', 'Fig'),
   defaultMode: MODES.includes(str('DEFAULT_MODE', 'normal')) ? str('DEFAULT_MODE', 'normal') : 'normal',

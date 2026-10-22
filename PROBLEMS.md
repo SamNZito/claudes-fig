@@ -123,6 +123,25 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 - Songs someone asked for are only dropped or blocked when they are plainly the skipped song: the same upload, or the same title. Sharing an artist or uploader no longer counts, and neither do loose typed words.
 - When a skip does remove a queued duplicate, Fig says so in chat.
 
+## 10. Music dipped, came back, then dipped again before Fig answered (Oct 22)
+
+**Cause.** When Fig started on a spoken request it lowered the music for a fixed 1.5 s. Asking Grok and making the voice usually takes 2-4 s, so the music came back up, then dipped again when Fig spoke.
+
+**Fix.** The music now stays down from the moment Fig starts on the request until the answer has been spoken, or until Fig decides to say nothing (`Mixer.duckFor`, with a 15 s safety limit). Test: `test/duck.test.js`.
+
+## 11. "Fig" heard as "fake" or "fix" (Oct 22)
+
+**Cause, part 1.** xAI's speech-to-text reads its options (model, language, `keyterm` hints) only when they come before the audio in the upload. Fig sent the audio first, so the "Fig" hint was probably ignored.
+
+**Fix.**
+
+- The audio is now the last field.
+- The hints are "Fig", "Hey Fig", "Okay Fig" and the short commands (skip, pause, resume, stop, queue, shuffle, volume, louder, quieter, DJ).
+- Add your own with `STT_KEYTERMS`.
+- Test: `test/stt.test.js`.
+
+Next steps (planned): log what Fig thought each command was, and accept near-misses like "hey fix, skip" for simple commands only.
+
 ## Already decided (still true)
 
 - One bot, one token. A second copy refuses to start, and a copy on another machine makes this one step aside.
