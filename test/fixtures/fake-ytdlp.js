@@ -7,6 +7,7 @@
 //                   "dlfail" -> probe ok, download 403       "slow" -> download hangs
 //                   "noise" -> noise.mp3, otherwise tone.mp3 (6 s)
 // Search: ytsearchN:q -> ids "<slug>-<i>";  scsearchN:q -> ids "sc-<slug>-<i>".
+//         FAKE_SC_RESULTS='[{"title":..,"channel":..}]' sets the SoundCloud results' titles/uploaders.
 // Every call is appended to $FAKE_YTDLP_LOG (if set) so tests can count probes.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -58,16 +59,17 @@ if (args.includes('--dump-json')) {
     const n = Number(m[2]);
     const sc = m[1] === 'sc';
     if (sc && process.env.FAKE_SC_EMPTY) process.exit(0);
-    for (let i = 0; i < n; i++) {
+    const custom = sc && process.env.FAKE_SC_RESULTS ? JSON.parse(process.env.FAKE_SC_RESULTS) : null;
+    for (let i = 0; i < (custom ? Math.min(n, custom.length) : n); i++) {
       const id = sc ? `sc-${q}-${i}` : `${q}-${i}`;
       const src = sc ? 'soundcloud' : 'youtube';
       const it = info(id, src);
       console.log(
         JSON.stringify({
           id,
-          title: `${m[3].trim()} #${i}`,
+          title: custom ? custom[i].title : `${m[3].trim()} #${i}`,
           duration: Number(process.env.FAKE_DURATION || 6),
-          channel: 'Fake',
+          channel: custom ? custom[i].channel : 'Fake',
           ie_key: sc ? 'Soundcloud' : 'Youtube',
           url: it.webpage_url,
         }),

@@ -16,6 +16,7 @@ const sources = require('./sources');
 const { searchSource, isUrl } = require('./search');
 const spotify = require('./spotify');
 const { matchesAsk } = require('./identity');
+const { rankCandidate } = require('./rank');
 const { config } = require('../config');
 const log = require('../log').logger('resolve');
 
@@ -190,6 +191,20 @@ async function findPlayable(req, { blocked = () => null, aborted = () => false }
   await ensureMeta(req);
   if (aborted()) return { ok: false, kind: 'aborted', reason: 'skipped' };
   const want = req.meta ? `${req.meta.artist} ${req.meta.title}` : req.asked;
+  const askedText = `${req.asked || ''} ${req.meta?.title || ''}`;
+  // Uploads found before we got here (e.g. the first SoundCloud search when Spotify isn't set up) get
+  // the same ranking as later searches. A pasted link (pinned) is never re-ranked.
+  {
+    const fresh = req.candidates.filter((t) => t.rank === undefined && t.key !== req.pinned);
+    if (fresh.length) {
+      const ranked = fresh.map((t) => ({ t, ...rankCandidate(t, { match: matchesAsk(want, t), asked: askedText, artist: req.meta?.artist }) }));
+      for (const x of ranked) x.t.rank = x.score;
+      ranked.sort((a, b) => b.score - a.score);
+      for (const [i, x] of ranked.slice(0, 5).entries()) {
+        log.info(`  #${i + 1} "${x.t.title}" by ${x.t.channel || '?'} ${x.t.key}: ${x.score.toFixed(2)} (${x.why.join(', ')})`);
+      }
+    }
+  }
 
   while (Date.now() < deadline && probes < 10) {
     if (aborted()) return { ok: false, kind: 'aborted', reason: 'skipped' };
@@ -199,7 +214,8 @@ async function findPlayable(req, { blocked = () => null, aborted = () => false }
       .filter((t) => sources.allowed(sources.sourceOf(t)))
       .filter((t) => sources.isUp(sources.sourceOf(t)) || (req.pinned && t.key === req.pinned))
       .filter((t) => (badPerSource[sources.sourceOf(t)] || 0) < PER_SOURCE_BAD_UPLOADS);
-    pool.sort((a, b) => order.indexOf(sources.sourceOf(a)) - order.indexOf(sources.sourceOf(b)));
+    // Healthiest source first; within a source, the best-ranked upload (see rank.js) across all searches.
+    pool.sort((a, b) => order.indexOf(sources.sourceOf(a)) - order.indexOf(sources.sourceOf(b)) || (b.rank ?? 1) - (a.rank ?? 1));
     let cand = null;
     for (const t of pool) {
       const why = blocked(t) || (!req.pinned && !lengthFits(req.meta, t.duration) ? `${Math.round(t.duration)}s doesn't fit a ${req.meta.durationSec}s song` : null);
@@ -222,13 +238,18 @@ async function findPlayable(req, { blocked = () => null, aborted = () => false }
       try {
         const found = await searchSource(src, text, { limit: 8 });
         if (aborted()) return { ok: false, kind: 'aborted', reason: 'skipped' };
+        // askedText: for spotting versions nobody asked for ("remix" in the request makes remixes fine).
         const scored = found
           .filter((t) => !req.candidates.some((c) => c.key === t.key))
-          .map((t) => ({ t, score: matchesAsk(want, t), fit: req.meta?.durationSec && t.duration ? Math.abs(t.duration - req.meta.durationSec) : 0 }))
-          .filter((x) => x.score >= 0.5)
+          .map((t) => ({ t, match: matchesAsk(want, t), fit: req.meta?.durationSec && t.duration ? Math.abs(t.duration - req.meta.durationSec) : 0 }))
+          .filter((x) => x.match >= 0.5)
+          .map((x) => ({ ...x, ...rankCandidate(x.t, { match: x.match, asked: askedText, artist: req.meta?.artist }) }))
           .sort((a, b) => b.score - a.score || a.fit - b.fit);
         log.info(`searched ${src} for "${text}": ${scored.length}/${found.length} look like "${want}"`);
-        req.candidates.push(...scored.map((x) => x.t));
+        for (const [i, x] of scored.slice(0, 5).entries()) {
+          log.info(`  #${i + 1} "${x.t.title}" by ${x.t.channel || '?'} ${x.t.key}: ${x.score.toFixed(2)} (${x.why.join(', ')})`);
+        }
+        req.candidates.push(...scored.map((x) => ({ ...x.t, rank: x.score })));
       } catch (e) {
         log.warn(`${src} search failed: ${e.message}`);
         note({ kind: 'unknown', reason: `${sources.label(src)} search failed` });
