@@ -17,6 +17,7 @@ const { searchSource, isUrl } = require('./search');
 const spotify = require('./spotify');
 const { matchesAsk } = require('./identity');
 const { rankCandidate } = require('./rank');
+const scinfo = require('./scinfo');
 const { config } = require('../config');
 const log = require('../log').logger('resolve');
 
@@ -162,6 +163,35 @@ function searchTexts(req) {
 }
 
 /**
+ * Ask SoundCloud about every SoundCloud candidate not checked yet (one batched request). Preview-only,
+ * DRM-locked and region-blocked uploads are set aside without a probe; uploads from the label or a
+ * verified account rank a little higher. Unknown answers change nothing (the probe decides, as before).
+ */
+async function checkSoundCloud(req, note) {
+  const unchecked = req.candidates.filter((t) => t.sc === undefined && !req.tried.has(t.key) && sources.sourceOf(t) === 'soundcloud' && /^\d+$/.test(String(t.id)));
+  if (!unchecked.length) return;
+  const infos = await scinfo.lookupTracks(unchecked.map((t) => t.id));
+  let locked = 0;
+  for (const t of unchecked) {
+    const info = infos.get(String(t.id)) || null;
+    t.sc = info;
+    if (!info) continue;
+    const v = scinfo.verdict(info);
+    if (!v.playable) {
+      locked++;
+      req.tried.add(t.key);
+      // A region block on one track is not "SoundCloud is refusing this server" (kind 'blocked').
+      note({ kind: v.kind === 'blocked' ? 'unavailable' : v.kind, reason: v.reason });
+      log.info(`skip "${t.title}" ${t.key}: ${v.reason} (SoundCloud says so; no probe needed)`);
+    } else if (scinfo.official(info)) {
+      t.rank = (t.rank ?? 1) + 0.1;
+      log.info(`"${t.title}" ${t.key} is an official upload${info.labelArtist ? ` (label artist: ${info.labelArtist})` : ''}${info.verified ? ' from a verified account' : ''}`);
+    }
+  }
+  if (infos.size) log.info(`checked ${infos.size} SoundCloud upload(s) with SoundCloud: ${locked} locked or preview-only`);
+}
+
+/**
  * Find a playable copy for a request.
  * @param {object} req       queue entry: { asked, meta?, candidates[], tried:Set, via, explicit, pinned }
  * @param {object} opts
@@ -207,6 +237,8 @@ async function findPlayable(req, { blocked = () => null, aborted = () => false }
   }
 
   while (Date.now() < deadline && probes < 10) {
+    if (aborted()) return { ok: false, kind: 'aborted', reason: 'skipped' };
+    await checkSoundCloud(req, note);
     if (aborted()) return { ok: false, kind: 'aborted', reason: 'skipped' };
     const order = sources.order();
     const pool = req.candidates

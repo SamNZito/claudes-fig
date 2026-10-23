@@ -6,3 +6,4 @@ data/*.tmp
 logs/
 data/discord-token
 data/fig.stopped
+data/soundcloud-client-id

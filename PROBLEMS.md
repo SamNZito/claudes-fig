@@ -148,6 +148,22 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 - **Turning it off.** Set `NEAR_NAME_COMMANDS=false`.
 - **Test.** `test/nearname.test.js`.
 
+## 12. Locked SoundCloud copies were found one probe at a time (Oct 23)
+
+**Cause.** Major-label songs on SoundCloud are usually preview-only or DRM-locked. Fig only found out by probing each copy with yt-dlp, which is slow and gives a vague reason.
+
+**Fix.** `src/music/scinfo.js` asks SoundCloud's own web API about all the candidates in one request before any probe:
+
+- `policy: SNIP` or only snipped streams: preview-only.
+- Only ctr/cbc-encrypted streams: DRM.
+- `policy: BLOCK`: not available here.
+
+Those copies are skipped with that exact reason. Uploads from the label or a verified account rank a little higher.
+
+It uses soundcloud.com's public web client_id, read the way yt-dlp does it and cached in `data/`. If the check fails, Fig probes as before and pauses the check for 10 minutes. `SOUNDCLOUD_CHECK=off` turns it off. Test: `test/scinfo.test.js`.
+
+**Log to look for:** `skip "..." soundcloud:...: SoundCloud only offers a 30-second preview of it (SoundCloud says so; no probe needed)`.
+
 ## Already decided (still true)
 
 - One bot, one token. A second copy refuses to start, and a copy on another machine makes this one step aside.

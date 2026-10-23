@@ -11,6 +11,8 @@ process.env.MIN_SONG_SEC = '4'; // fixtures are 6 s songs and a 2 s "preview"
 process.env.FIG_LOG = path.join(process.env.DATA_DIR, 'fig.log');
 process.env.FAKE_YTDLP_LOG = path.join(process.env.DATA_DIR, 'ytdlp-calls.log');
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'error';
+// Tests never call SoundCloud's real API; test/scinfo.test.js turns this on with a fake fetch.
+process.env.SOUNDCLOUD_CHECK = process.env.SOUNDCLOUD_CHECK || 'off';
 process.env.DISCORD_TOKEN = 'test';
 process.env.XAI_API_KEY = 'test';
 try { fs.chmodSync(process.env.YTDLP_PATH, 0o755); } catch { /* windows */ }

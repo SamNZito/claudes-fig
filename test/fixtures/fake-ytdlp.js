@@ -61,7 +61,7 @@ if (args.includes('--dump-json')) {
     if (sc && process.env.FAKE_SC_EMPTY) process.exit(0);
     const custom = sc && process.env.FAKE_SC_RESULTS ? JSON.parse(process.env.FAKE_SC_RESULTS) : null;
     for (let i = 0; i < (custom ? Math.min(n, custom.length) : n); i++) {
-      const id = sc ? `sc-${q}-${i}` : `${q}-${i}`;
+      const id = custom && custom[i].id ? String(custom[i].id) : sc ? `sc-${q}-${i}` : `${q}-${i}`;
       const src = sc ? 'soundcloud' : 'youtube';
       const it = info(id, src);
       console.log(
