@@ -140,7 +140,13 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 - Add your own with `STT_KEYTERMS`.
 - Test: `test/stt.test.js`.
 
-Next steps (planned): log what Fig thought each command was, and accept near-misses like "hey fix, skip" for simple commands only.
+**Also (Oct 23): near-misses.**
+
+- **What counts.** "Hey, fake skip" and "Hey, fix, skip" now skip. A word that sounds like the name (same consonants: fake, fix, fick, feg, vig) has to start the sentence, or follow hey/yo/ok.
+- **Simple commands only.** The rest has to be one of: skip, pause, resume, stop, volume, shuffle, clear, what's playing. Questions and song requests still need the real name.
+- **Logging.** Each one is logged as `near-miss "fake" taken as "Fig" ...`.
+- **Turning it off.** Set `NEAR_NAME_COMMANDS=false`.
+- **Test.** `test/nearname.test.js`.
 
 ## Already decided (still true)
 

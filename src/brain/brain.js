@@ -6,7 +6,7 @@
 //   conversation - no wake name needed; anything said could be for Fig (Grok may stay quiet)
 // The one exception in normal mode: a spoken "yes" to a question Fig just asked that person (ban confirmation).
 const grok = require('./grok');
-const { detectWake, norm, sttKeyterms } = require('./wake');
+const { detectWake, norm, sttKeyterms, nearMissRest } = require('./wake');
 const { TOOLS, CHIME_TOOLS, runTool } = require('./tools');
 const actions = require('../actions');
 const { forText } = require('../audio/tts');
@@ -125,6 +125,15 @@ class Brain {
     // normal: only when the wake name is said. conversation: no name needed.
     const addressed = named || mode === 'conversation';
     if (!addressed) {
+      // "Hey, fake skip": the name was probably misheard. Accept it, but only for a simple command
+      // (skip, pause, volume...) right after the sound-alike word. Questions and song requests still
+      // need the real name, so ordinary talk can't trigger anything bigger.
+      const near = config.nearNameCommands ? nearMissRest(text, st.wakeName) : null;
+      const nearCmd = near ? fastCommand(near.rest) : null;
+      if (nearCmd) {
+        log.info(`near-miss "${near.word}" taken as "${st.wakeName}" for simple command "${nearCmd}": "${text}"`);
+        return this.runFast(member, nearCmd, near.rest, text, { source });
+      }
       log.info(`not for Fig (mode=${mode}, wake name "${st.wakeName}" not said): "${text}"`);
       return;
     }

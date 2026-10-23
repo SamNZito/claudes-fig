@@ -52,6 +52,8 @@ const config = {
   ttsVoice: str('TTS_VOICE', 'eve'),
   ttsLanguage: str('TTS_LANGUAGE', 'en'),
   sttLanguage: str('STT_LANGUAGE', 'en'),
+  // "Hey, fake skip" -> skip: a word that sounds like the name, then a simple command. Off: NEAR_NAME_COMMANDS=false
+  nearNameCommands: bool('NEAR_NAME_COMMANDS', true),
   sttKeyterms: list('STT_KEYTERMS'), // extra words to hint to speech-to-text (Fig's name and commands are always sent)
 
   wakeName: str('WAKE_NAME', 'Fig'),
