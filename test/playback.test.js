@@ -26,7 +26,7 @@ function setup(gid) {
 const { config } = require('../src/config');
 const spotify = require('../src/music/spotify');
 const realFetch = global.fetch;
-const fakeSpotify = { tracks: {}, search: [] }; // search: [{ match: RegExp, items: [...] }]
+const fakeSpotify = { tracks: {}, search: [], embed: {} }; // search: [{ match: RegExp, items: [...] }]; embed: { id: entity }
 const spTrack = (id, name, artist, sec) => ({ id, name, artists: [{ name: artist }], duration_ms: sec * 1000, external_urls: { spotify: `https://open.spotify.com/track/${id}` } });
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
 global.fetch = async (url, opts) => {
@@ -41,6 +41,13 @@ global.fetch = async (url, opts) => {
   if (tm) return fakeSpotify.tracks[tm[1]] ? json(fakeSpotify.tracks[tm[1]]) : json({}, 404);
   if (/api\.spotify\.com\/v1\/playlists\//.test(u)) return json({ error: 'forbidden' }, 403);
   if (u.startsWith('https://www.youtube.com/oembed')) return json({ title: 'Tone Ytlink (Official Video)', author_name: 'ToneVEVO' });
+  const em = u.match(/^https:\/\/open\.spotify\.com\/embed\/(track|album|playlist)\/(\w+)/);
+  if (em) {
+    const entity = fakeSpotify.embed[em[2]];
+    if (!entity) return new Response('not found', { status: 404 });
+    const next = JSON.stringify({ props: { pageProps: { state: { data: { entity } } } } });
+    return new Response(`<html><body><script id="__NEXT_DATA__" type="application/json">${next}</script></body></html>`, { status: 200 });
+  }
   if (u.startsWith('https://open.spotify.com/track/')) {
     return new Response('<html><head><meta property="og:title" content="Tone Pagesong"><meta property="og:description" content="Tone Band · Album · Song · 2020"></head></html>', { status: 200 });
   }
@@ -126,13 +133,60 @@ test('#1 without Spotify keys, a Spotify track link still works (public page tit
   player.destroy();
 });
 
-test('#1 a Spotify playlist Spotify won\'t share gives a clear answer', async () => {
+test('#1 a Spotify playlist that is private (no public page either) gives a clear answer', async () => {
   withSpotify(true);
   const { player } = setup('p1f');
   const res = await player.request('https://open.spotify.com/playlist/37i9dQZF1DX0Yxoavh5qJV');
   assert.strictEqual(res.ok, false);
-  assert.match(res.error, /playlist/);
+  assert.match(res.error, /playlist doesn't exist or is private/);
   withSpotify(false);
+  player.destroy();
+});
+
+const embedTrack = (id, title, artists, sec) => ({ uri: `spotify:track:${id}`, title, subtitle: artists.join(', '), duration: sec * 1000, isPlayable: true });
+
+test("#9 someone else's playlist: the API refuses, the public page lists the songs", async () => {
+  withSpotify(true); // the API answers 403 for every playlist
+  fakeSpotify.embed.pl9 = {
+    type: 'playlist',
+    name: 'Xmas',
+    uri: 'spotify:playlist:pl9',
+    trackList: [embedTrack('t1', 'O Tannenbaum', ['Vince Guaraldi Trio'], 6), embedTrack('t2', 'Linus and Lucy', ['Vince Guaraldi Trio', 'Someone'], 6)],
+  };
+  const { player } = setup('p9a');
+  const res = await player.request('https://open.spotify.com/playlist/pl9?si=abc');
+  assert.ok(res.ok, res.error);
+  assert.deepEqual(res.entries.map((e) => e.asked), ['Vince Guaraldi Trio - O Tannenbaum', 'Vince Guaraldi Trio - Linus and Lucy']);
+  assert.equal(res.entries[0].meta.durationSec, 6);
+  assert.equal(res.entries[0].meta.url, 'https://open.spotify.com/track/t1');
+  assert.equal(res.note, null);
+  withSpotify(false);
+  player.destroy();
+});
+
+test('#9 without any Spotify keys, playlists and albums come from the public page; 100+ songs get a note', async () => {
+  withSpotify(false);
+  fakeSpotify.embed.big9 = { type: 'playlist', name: 'Big', uri: 'spotify:playlist:big9', trackList: Array.from({ length: 100 }, (_, i) => embedTrack(`b${i}`, `Song ${i}`, ['Band'], 6)) };
+  fakeSpotify.embed.al9 = { type: 'album', name: 'Album', uri: 'spotify:album:al9', trackList: [embedTrack('a1', 'Track One', ['Band'], 6)] };
+  const { player } = setup('p9b');
+  const big = await player.request('https://open.spotify.com/playlist/big9');
+  assert.ok(big.ok, big.error);
+  assert.equal(big.entries.length, 100);
+  assert.match(big.note, /first 100 songs/);
+  const album = await player.request('https://open.spotify.com/album/al9');
+  assert.ok(album.ok, album.error);
+  assert.equal(album.entries[0].asked, 'Band - Track One');
+  player.destroy();
+});
+
+test('#9 without keys, a track link gets its length from the public page', async () => {
+  withSpotify(false);
+  fakeSpotify.embed.tr9 = { type: 'track', name: 'Tone Embedsong', uri: 'spotify:track:tr9', artists: [{ name: 'Tone Band' }], duration: 6000 };
+  const { player } = setup('p9c');
+  const res = await player.request('https://open.spotify.com/track/tr9');
+  assert.ok(res.ok, res.error);
+  assert.equal(res.entries[0].asked, 'Tone Band - Tone Embedsong');
+  assert.equal(res.entries[0].meta.durationSec, 6);
   player.destroy();
 });
 

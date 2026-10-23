@@ -103,7 +103,7 @@ class MusicPlayer extends EventEmitter {
     const res = this.enqueue(entries, { front: playNext || playNow, why: 'user-request' });
     // /play when:now (slash command only). Voice requests never do this. Not a skip of a song they dislike, so no block.
     if (playNow && wasPlaying) this.skip({ reason: 'play now', block: false });
-    return { ok: true, entries, ...res };
+    return { ok: true, entries, note: found.note || null, ...res };
   }
 
   /** Accept a bare track too (older callers / tests): wrap it as a request for exactly that track. */

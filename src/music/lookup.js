@@ -35,7 +35,8 @@ async function lookup(query) {
     try {
       const metas = await spotify.fromLink(sp);
       if (!metas.length) return { ok: false, error: 'That Spotify link has no songs I can see' };
-      return { ok: true, items: metas.map((m) => ({ asked: m.asked, meta: m })), source: 'spotify-link' };
+      const note = metas.capped ? `Spotify only lets bots see the first ${metas.capped} songs of a playlist, so that's what I queued.` : null;
+      return { ok: true, items: metas.map((m) => ({ asked: m.asked, meta: m })), source: metas[0]?.fromEmbed ? 'spotify-public-page' : 'spotify-link', note };
     } catch (e) {
       return { ok: false, error: e.message };
     }

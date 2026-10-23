@@ -77,12 +77,13 @@ async function play(ctx, { query, when = 'queue' }) {
   const first = res.entries[0];
   const label = res.entries.length > 1 ? first.title : first.asked || first.title;
   const many = res.entries.length > 1 ? ` (+${res.entries.length - 1} more from the playlist)` : '';
+  const note = res.note ? `\n${res.note}` : '';
   if (res.startsNow || when === 'now') {
     // The music starting is the confirmation. "Now playing" is posted when audio actually starts.
-    return ok(null, { text: `Finding **${label}**${many}...`, startsNow: true, entry: first });
+    return ok(null, { text: `Finding **${label}**${many}...${note}`, startsNow: true, entry: first });
   }
   const pos = when === 'next' ? 'next up' : `#${res.position} in the queue`;
-  return ok(`Queued ${label}, ${pos}.`, { text: `Queued **${label}**${many}, ${pos}.`, entry: first });
+  return ok(`Queued ${label}, ${pos}.`, { text: `Queued **${label}**${many}, ${pos}.${note}`, entry: first });
 }
 
 function skip(ctx) {
