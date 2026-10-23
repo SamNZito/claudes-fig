@@ -118,7 +118,7 @@ Set `HOME_VOICE_CHANNEL=zzzz` and Fig goes back to #zzzz after every restart. It
 
 1. **Lookup.** With Spotify keys set, "play please come home for christmas" is looked up on Spotify first, which gives the real artist, title and length ("Eagles - Please Come Home for Christmas", 2:58). Spotify track and album links work the same way. Since February 2026 Spotify's API only hands out the songs of playlists the app's own account owns. For anyone else's public playlist, and for every link when no keys are set, Fig reads Spotify's public embed page instead, which shows up to 100 songs; Fig says so when a playlist was cut off there. That page isn't an official API, so if Spotify changes it, Fig says it couldn't read the playlist.
 2. **Audio.** Fig searches SoundCloud for that artist and title and probes each copy before it plays. It skips 30-second previews, DRM-locked copies, and copies whose length doesn't match Spotify's (edits, previews, wrong songs). A copy that still stops early is swapped for another one.
-3. **Not found.** If SoundCloud only has previews or locked copies, Fig says so instead of going quiet. This happens for some major-label songs, because labels often post only previews there.
+3. **Not found.** If SoundCloud only has previews or locked copies, Fig says so instead of going quiet. This happens for many major-label songs, because labels often post only previews there. Fig then looks for another full version of the same song (a cover, a live take) and offers it with a link: say "Fig, play that" or type `/play that` within 10 minutes to hear it. Turn this off with `OFFER_OTHER_VERSIONS=false`.
 
 A pasted YouTube link is only used for its title, and the song is then found on SoundCloud.
 

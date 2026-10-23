@@ -59,7 +59,13 @@ if (args.includes('--dump-json')) {
     const n = Number(m[2]);
     const sc = m[1] === 'sc';
     if (sc && process.env.FAKE_SC_EMPTY) process.exit(0);
-    const custom = sc && process.env.FAKE_SC_RESULTS ? JSON.parse(process.env.FAKE_SC_RESULTS) : null;
+    // FAKE_SC_RESULTS: an array, or { "<words in the query>": [...], "*": [...] } for different searches.
+    let custom = sc && process.env.FAKE_SC_RESULTS ? JSON.parse(process.env.FAKE_SC_RESULTS) : null;
+    if (custom && !Array.isArray(custom)) {
+      const ql = m[3].toLowerCase();
+      const k = Object.keys(custom).find((key) => key !== '*' && ql.includes(key.toLowerCase()));
+      custom = custom[k] || custom['*'] || [];
+    }
     for (let i = 0; i < (custom ? Math.min(n, custom.length) : n); i++) {
       const id = custom && custom[i].id ? String(custom[i].id) : sc ? `sc-${q}-${i}` : `${q}-${i}`;
       const src = sc ? 'soundcloud' : 'youtube';
@@ -68,7 +74,7 @@ if (args.includes('--dump-json')) {
         JSON.stringify({
           id,
           title: custom ? custom[i].title : `${m[3].trim()} #${i}`,
-          duration: Number(process.env.FAKE_DURATION || 6),
+          duration: custom && custom[i].duration ? custom[i].duration : Number(process.env.FAKE_DURATION || 6),
           channel: custom ? custom[i].channel : 'Fake',
           ie_key: sc ? 'Soundcloud' : 'Youtube',
           url: it.webpage_url,

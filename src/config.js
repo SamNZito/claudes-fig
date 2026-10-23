@@ -54,6 +54,8 @@ const config = {
   sttLanguage: str('STT_LANGUAGE', 'en'),
   // "Hey, fake skip" -> skip: a word that sounds like the name, then a simple command. Off: NEAR_NAME_COMMANDS=false
   nearNameCommands: bool('NEAR_NAME_COMMANDS', true),
+  // When a song is preview-only on SoundCloud, offer the closest full version (a cover, live...). Off: OFFER_OTHER_VERSIONS=false
+  offerOtherVersions: bool('OFFER_OTHER_VERSIONS', true),
   sttKeyterms: list('STT_KEYTERMS'), // extra words to hint to speech-to-text (Fig's name and commands are always sent)
 
   wakeName: str('WAKE_NAME', 'Fig'),

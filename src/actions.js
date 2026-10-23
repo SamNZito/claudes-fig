@@ -60,10 +60,19 @@ async function ensureVoice(ctx) {
 
 // ------------------------------------------------------------------ music
 
+const OFFER_WORDS = /^(that|that one|it|the other one|the other version|that version|the full (one|version))\.?$/i;
+
 async function play(ctx, { query, when = 'queue' }) {
   const denied = need(ctx, 'ask');
   if (denied) return denied;
   if (!query || !String(query).trim()) return no('What should I play?');
+  // "play that": the full version Fig just offered for a preview-only song.
+  if (OFFER_WORDS.test(String(query).trim())) {
+    const offer = ctx.session.pendingOffer;
+    if (!offer || Date.now() > offer.until) return no("I don't have another version lined up. Tell me the song name.");
+    ctx.session.pendingOffer = null;
+    query = offer.url;
+  }
   if ((when === 'now' || when === 'next') && !allowed(ctx.member, 'control')) when = 'queue';
   const vErr = await ensureVoice(ctx);
   if (vErr) return vErr;

@@ -31,6 +31,7 @@ const FAST = [
   [/^shuffle( the queue| it)?( please)?$/, 'shuffle'],
   [/^(clear|clear the queue|clear queue)( please)?$/, 'clear'],
   [/^(what'?s|what is) (playing|this song|this)$/, 'np'],
+  [/^((yes |yeah |ok |sure )?play (that|that one|the other one|that version|the full (one|version)))( please)?$/, 'playoffer'],
   [/^(forget( it| that| everything)?|drop it|drop the image)$/, 'forget'],
 ];
 
@@ -129,7 +130,8 @@ class Brain {
       // (skip, pause, volume...) right after the sound-alike word. Questions and song requests still
       // need the real name, so ordinary talk can't trigger anything bigger.
       const near = config.nearNameCommands ? nearMissRest(text, st.wakeName) : null;
-      const nearCmd = near ? fastCommand(near.rest) : null;
+      let nearCmd = near ? fastCommand(near.rest) : null;
+      if (nearCmd === 'playoffer' && !(s.pendingOffer && Date.now() < s.pendingOffer.until)) nearCmd = null;
       if (nearCmd) {
         log.info(`near-miss "${near.word}" taken as "${st.wakeName}" for simple command "${nearCmd}": "${text}"`);
         return this.runFast(member, nearCmd, near.rest, text, { source });
@@ -139,7 +141,8 @@ class Brain {
     }
     log.info(`for Fig: ${member.displayName} mode=${mode} named=${named} -> "${named ? stripped : text}"`);
     const cmdText = named ? stripped : norm(text);
-    const fast = fastCommand(cmdText);
+    let fast = fastCommand(cmdText);
+    if (fast === 'playoffer' && !(s.pendingOffer && Date.now() < s.pendingOffer.until)) fast = null; // nothing offered: let Grok work it out
     if (fast) return this.runFast(member, fast, cmdText, text, { source });
     return this.think(member, text, { named, mode, source });
   }
@@ -181,6 +184,9 @@ class Brain {
         break;
       case 'np':
         r = actions.nowPlaying(ctx);
+        break;
+      case 'playoffer':
+        r = await actions.play(ctx, { query: 'that' });
         break;
       case 'forget':
         r = actions.forget(ctx);

@@ -70,6 +70,7 @@ class GuildSession extends EventEmitter {
     this.brain = new Brain(this);
     this.timers = new Set();
     this.pendingConfirm = null;
+    this.pendingOffer = null; // { url, title, uploader, until }: a full version Fig offered after a preview-only song
     this.focus = null;
 
     this.connection = null;
@@ -114,7 +115,7 @@ class GuildSession extends EventEmitter {
     this.mixer.on('warn', (m) => log.warn(m));
 
     this.player.on('nowPlaying', (e) => this.onNowPlaying(e));
-    this.player.on('trackFailed', (e, reason) => this.onTrackFailed(e, reason));
+    this.player.on('trackFailed', (e, reason, kind) => this.onTrackFailed(e, reason, kind));
     this.player.on('dupesDropped', (skipped, gone) =>
       this.postText(`Also took ${gone.map((g) => `**${g.asked || g.title}**`).join(', ')} out of the queue (same song as the one you skipped).`),
     );
@@ -562,7 +563,7 @@ class GuildSession extends EventEmitter {
     if (config.djTalk && entry.via === 'dj') this.speak(`Here's ${entry.title}.`);
   }
 
-  onTrackFailed(entry, reason) {
+  onTrackFailed(entry, reason, kind) {
     const asked = entry.asked || entry.title;
     if (entry.via === 'dj') {
       // DJ picks that can't be found are skipped quietly. If nothing at all plays, stop and say why.
@@ -581,6 +582,26 @@ class GuildSession extends EventEmitter {
     const line = `I couldn't play ${asked}. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
     this.speak(line);
     if (m) this.memory.figSaid(line, m.displayName);
+    if ((kind === 'preview' || kind === 'drm') && config.offerOtherVersions) this.offerOtherVersion(entry).catch((e) => log.warn(`other-version search failed: ${e.message}`));
+  }
+
+  /**
+   * The original is preview-only or locked: look for another full version (a cover, a live take...)
+   * and offer it. It plays only if someone says "Fig, play that" (or /play that) within 10 minutes.
+   */
+  async offerOtherVersion(entry) {
+    const { findAlternative, songTitle } = require('../music/alternatives');
+    const alt = await findAlternative(entry, { aborted: () => this.destroyed });
+    if (!alt || this.destroyed) return;
+    const mins = alt.durationSec ? ` (${Math.floor(alt.durationSec / 60)}:${String(alt.durationSec % 60).padStart(2, '0')})` : '';
+    const by = alt.uploader ? ` by ${alt.uploader}` : '';
+    this.pendingOffer = { url: alt.url, title: alt.title, uploader: alt.uploader, until: Date.now() + 10 * 60 * 1000 };
+    log.info(`offered "${alt.title}"${by} ${alt.url} instead of "${entry.asked}"`);
+    this.postText(
+      `Closest full version of **${songTitle(entry)}**: **${alt.title}**${by}${mins}${alt.url ? ` · [SoundCloud](<${alt.url}>)` : ''}. ` +
+        `Say "${this.settings().wakeName}, play that" or type \`/play that\`.`,
+    );
+    this.speak(`I found a full version${alt.uploader ? ` by ${alt.uploader}` : ''}. Say play that if you want it.`);
   }
 
   /** A source started refusing this machine. Say so once, so the room knows why songs take a detour. */

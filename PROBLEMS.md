@@ -164,6 +164,8 @@ It uses soundcloud.com's public web client_id, read the way yt-dlp does it and c
 
 **Log to look for:** `skip "..." soundcloud:...: SoundCloud only offers a 30-second preview of it (SoundCloud says so; no probe needed)`.
 
+**Then (task 8): another version.** When the original is preview-only or locked, `src/music/alternatives.js` searches for the song's name alone. It skips copies SoundCloud says are locked and checks up to 3 for a full-length one (at least 60 s). Fig offers that one in chat with a link, and it plays on "Fig, play that" / `/play that` within 10 minutes. Test: `test/alternatives.test.js`.
+
 ## Already decided (still true)
 
 - One bot, one token. A second copy refuses to start, and a copy on another machine makes this one step aside.
