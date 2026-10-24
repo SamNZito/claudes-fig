@@ -56,7 +56,8 @@ const config = {
   nearNameCommands: bool('NEAR_NAME_COMMANDS', true),
   // When a song is preview-only on SoundCloud, offer the closest full version (a cover, live...). Off: OFFER_OTHER_VERSIONS=false
   offerOtherVersions: bool('OFFER_OTHER_VERSIONS', true),
-  sttKeyterms: list('STT_KEYTERMS'), // extra words to hint to speech-to-text (Fig's name and commands are always sent)
+  sttKeyterms: list('STT_KEYTERMS'),
+  sttNameHint: bool('STT_NAME_HINT', false), // hint the wake name to speech-to-text (off: it made STT hear "Fig" in ordinary talk) // extra words to hint to speech-to-text (Fig's name and commands are always sent)
 
   wakeName: str('WAKE_NAME', 'Fig'),
   defaultMode: MODES.includes(str('DEFAULT_MODE', 'normal')) ? str('DEFAULT_MODE', 'normal') : 'normal',

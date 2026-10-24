@@ -13,7 +13,9 @@ const { nearMissRest } = require('../src/brain/wake');
 test('which sentences count', () => {
   assert.deepEqual(nearMissRest('Hey, fake skip.', 'fig'), { word: 'fake', rest: 'skip' });
   assert.deepEqual(nearMissRest('Hey, fix, skip.', 'fig'), { word: 'fix', rest: 'skip' });
-  assert.deepEqual(nearMissRest('fick pause', 'fig'), { word: 'fick', rest: 'pause' });
+  assert.deepEqual(nearMissRest('yo fick pause', 'fig'), { word: 'fick', rest: 'pause' });
+  assert.equal(nearMissRest('fick pause', 'fig'), null, 'only right after hey/yo/ok');
+  assert.equal(nearMissRest('Fuck, stop.', 'fig'), null, 'swearing is not the name');
   assert.equal(nearMissRest('I need to fix skip', 'fig'), null, 'not at the start');
   assert.equal(nearMissRest('hey fig skip', 'fig'), null, 'the real name is handled normally');
   assert.equal(nearMissRest('hey pig skip', 'fig'), null, 'pig does not sound like fig');

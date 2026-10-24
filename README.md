@@ -41,12 +41,12 @@ npm start
 
 ## Talking to Fig
 
-Say the wake name (default **Fig**) anywhere in the sentence:
+Talk *to* Fig by name (default **Fig**), at the start of what you say ("Hey Fig, ...", "Fig, ...") or at the end ("..., Fig?"). Just mentioning Fig in conversation ("I think Fig is broken", "Fig keeps cutting out") doesn't wake it:
 
 - "Hey Fig, play Mr. Brightside." If a song is already playing, it goes in the queue. You can also paste a Spotify or SoundCloud link into `/play`.
 - "Fig, play Dreams by Fleetwood Mac next."
 - "Fig skip." / "Fig pause." / "Fig resume." / "Fig stop." / "Fig clear."
-  If the name gets misheard ("Hey, fake skip"), simple commands like these still work. Questions and song requests need the real name.
+  If the name gets misheard right after "hey" ("Hey, fake skip"), simple commands like these still work. Questions and song requests need the real name.
 - "Fig turn it down." / "Fig volume 30."
 - "Fig, take song 3 out of the queue."
 - "Fig, DJ something like late-night lo-fi." / "Fig, change the mood to 2000s pop punk." / "Fig, DJ off."

@@ -142,7 +142,7 @@ There are only two modes. In `normal`, Fig needs its wake name every time: no fo
 
 **Also (Oct 23): near-misses.**
 
-- **What counts.** "Hey, fake skip" and "Hey, fix, skip" now skip. A word that sounds like the name (same consonants: fake, fix, fick, feg, vig) has to start the sentence, or follow hey/yo/ok.
+- **What counts.** "Hey, fake skip" and "Hey, fix, skip" now skip. A word that sounds like the name (same consonants: fake, fix, fick, feg, vig) has to follow hey/yo/ok (since section 15; at first it could also start the sentence).
 - **Simple commands only.** The rest has to be one of: skip, pause, resume, stop, volume, shuffle, clear, what's playing. Questions and song requests still need the real name.
 - **Logging.** Each one is logged as `near-miss "fake" taken as "Fig" ...`.
 - **Turning it off.** Set `NEAR_NAME_COMMANDS=false`.
@@ -193,6 +193,24 @@ The native `@discordjs/opus`, when it installs, is used instead and doesn't have
 - **Test.** `test/claims.test.js`.
 
 **Log to look for:** `Grok said "..." but called no tool; asking again with a tool required`, then `retry: Grok now used play_music`.
+
+## 15. Fig joined in when nobody was talking to it (Oct 24)
+
+**Causes (all three loosened since Oct 22).**
+
+- **The "Fig" hint.** Hinting "Fig" / "Hey Fig" to speech-to-text pulled similar-sounding words toward "Fig". Testers have reported this effect with xAI's speech-to-text.
+- **The name counted anywhere.** "I think fig is broken" or "Fig keeps cutting out" woke Fig.
+- **Near-misses didn't need a greeting.** "Fuck, stop." could stop the music.
+
+**Fix.**
+
+- **Spoken to, not about.** The name counts only when Fig is being spoken to: at the start of a sentence (alone or after hey/yo/ok) or at its end ("..., Fig?", "skip this fig").
+  - Not counted: talking about Fig, meaning the name followed by is/was/keeps/just/'s/... without a comma ("Fig is so dumb", "Fig's playing the wrong song").
+  - Still counted: "Fig, is it raining?" and "Fig can you...".
+  - The log says `wake name "Fig" mentioned but not spoken to`.
+- **No name hint.** The name is no longer hinted to speech-to-text (`STT_NAME_HINT=true` brings it back). The command words still are.
+- **Near-misses need a greeting.** They count only right after hey/yo/ok ("Hey, fake skip").
+- **Tests.** `test/wake.test.js` lists the sentences that count and the ones that don't.
 
 ## Already decided (still true)
 

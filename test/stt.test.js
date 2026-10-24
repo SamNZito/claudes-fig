@@ -25,7 +25,11 @@ test('keyterms are de-duplicated, trimmed to 50 characters, and capped at 100', 
   assert.equal(k[1].length, 50);
 });
 
-test("Fig's hints: the name with greetings, and the short commands", () => {
+test("Fig's hints: the short commands; the name only when STT_NAME_HINT is on", () => {
   const k = sttKeyterms('fig', ['Super Chill']);
-  for (const t of ['Fig', 'Hey Fig', 'Okay Fig', 'skip', 'pause', 'resume', 'volume', 'Super Chill']) assert.ok(k.includes(t), t);
+  for (const t of ['skip', 'pause', 'resume', 'volume', 'Super Chill']) assert.ok(k.includes(t), t);
+  // Hinting the name made speech-to-text hear "Fig" in ordinary talk.
+  assert.ok(!k.some((t) => /fig/i.test(t)));
+  const withName = sttKeyterms('fig', [], { nameHint: true });
+  for (const t of ['Fig', 'Hey Fig', 'Okay Fig']) assert.ok(withName.includes(t), t);
 });

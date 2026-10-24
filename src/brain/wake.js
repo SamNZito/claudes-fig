@@ -73,45 +73,91 @@ function soundsLikeName(word, name) {
  *   text is the transcript with the wake phrase removed. nearMiss: when the name wasn't heard, a word
  *   that sounds like it (e.g. "fake" for "fig"), so simple commands still work (nearMissRest).
  */
+// Words that, right after the name, mean people are talking ABOUT Fig, not to it: "Fig is broken",
+// "Fig keeps cutting out". ("Fig, is it raining?" has a comma, and "Fig can you..." is a request.)
+const ABOUT = new Set(['is', 'was', 'isnt', "isn't", 'wasnt', "wasn't", 'keeps', 'kept', 'just', 'always', 'never', 'has', 'had', 'hasnt', "hasn't", 'does', 'did', 'doesnt', "doesn't", 'didnt', "didn't", 'sucks', 'said', 'says', 'thinks', 'thought', 'seems', 'sounds', 'broke', 'broken', 'got', 'gets', 'started', 'stopped', 'played', 'plays', 'playing', 'went', 'goes', 'and', 'or', 'too', 'also']);
+
+/** Words with the punctuation after each, from the raw transcript: [{w:'hey', after:', '}, ...]. */
+function wordsWithPunct(transcript) {
+  const out = [];
+  const raw = String(transcript || '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '');
+  const re = /([A-Za-z0-9]+(?:['’][A-Za-z]+)?)([^A-Za-z0-9]*)/g;
+  let m;
+  while ((m = re.exec(raw))) out.push({ w: m[1].toLowerCase().replace(/’/g, "'"), after: m[2] });
+  return out;
+}
+
+/**
+ * Is Fig being spoken TO? Only when the name is at the start of a sentence (optionally after a
+ * greeting: "hey fig", "ok, fig") or at the end of one ("skip this, fig", "what's up fig?").
+ * A mention in the middle ("I think fig is broken") or talking about Fig ("Fig is so dumb",
+ * "Fig's playing the wrong song") is not. This keeps Fig out of conversations that merely mention it.
+ * @returns {{named:boolean, text:string, heardAs?:string, mentioned?:boolean, nearMiss?:{word:string, index:number}|null}}
+ *   text is the transcript with the wake phrase removed. mentioned: the name was there but not
+ *   addressed to Fig. nearMiss: a word that sounds like the name (e.g. "fake" for "fig").
+ */
 function detectWake(transcript, name) {
   const t = norm(transcript);
   if (!t) return { named: false, text: '' };
   const nameNorm = norm(name);
-  const nameWords = nameNorm.split(' ');
-  const words = t.split(' ');
+  const len = nameNorm.split(' ').length;
   const vs = variants(name);
-  const len = nameWords.length;
+  const ww = wordsWithPunct(transcript);
+  const words = ww.map((x) => x.w);
+  const endsSentence = (i) => i === words.length - 1 || /[.!?]/.test(ww[i].after);
+  const startsSentence = (i) => i === 0 || /[.!?]/.test(ww[i - 1].after);
+  let mentioned = false;
   for (let i = 0; i + len <= words.length; i++) {
     const chunk = words.slice(i, i + len).join(' ');
     let hit = vs.includes(chunk);
     // Fuzzy for longer names only (short names like "fig" would match "big", "fix"...)
     if (!hit && nameNorm.length >= 5) hit = lev(chunk, nameNorm) <= 1;
-    if (hit) {
-      const before = words.slice(0, i);
-      // drop a greeting right before the name: "hey fig", "yo fig", "ok fig"
+    if (!hit) continue;
+    const last = i + len - 1;
+    // Start of a sentence, after nothing but greetings.
+    let s0 = i;
+    while (s0 > 0 && !startsSentence(s0) && GREETING.test(words[s0 - 1])) s0--;
+    const atStart = startsSentence(s0);
+    const commaAfter = /[,:;!?.]/.test(ww[last].after);
+    const next = words[last + 1];
+    const possessive = /'s$/.test(chunk);
+    const aboutFig = !commaAfter && (possessive || Boolean(next && ABOUT.has(next)));
+    // End of a sentence: "..., fig." or the very last word ("what's up fig?").
+    const atEnd = endsSentence(last) && (last === words.length - 1 || (i > 0 && /,/.test(ww[i - 1].after)));
+    if ((atStart && !aboutFig) || (atEnd && !possessive)) {
+      // The words meant for Fig: the sentence it was named in, without the name and greetings.
+      // ("That song sucks. Fig, skip it." -> "skip it")
+      let from = i;
+      while (from > 0 && !startsSentence(from)) from--;
+      const before = words.slice(from, i);
       while (before.length && GREETING.test(before[before.length - 1])) before.pop();
+      while (before.length && GREETING.test(before[0])) before.shift();
       const rest = [...before, ...words.slice(i + len)].join(' ').trim();
       return { named: true, text: rest, heardAs: chunk };
     }
+    mentioned = true;
   }
   const idx = len === 1 ? words.findIndex((w) => soundsLikeName(w, name)) : -1;
-  return { named: false, text: t, nearMiss: idx >= 0 ? { word: words[idx], index: idx } : null };
+  return { named: false, text: t, mentioned, nearMiss: idx >= 0 ? { word: words[idx], index: idx } : null };
 }
 
-// Words worth hinting to speech-to-text: the name (with the usual greetings) and the short spoken
-// commands, which are the words most often misheard ("skip" as "kip"). Kept short on purpose: every
+// Words worth hinting to speech-to-text: the short spoken commands (and the name, only if asked), which are the words most often misheard ("skip" as "kip"). Kept short on purpose: every
 // hint pulls unclear audio toward it. Extra hints: STT_KEYTERMS=word,another phrase
 const COMMAND_TERMS = ['skip', 'pause', 'resume', 'unpause', 'stop', 'queue', 'shuffle', 'volume', 'louder', 'quieter', 'DJ'];
 
-function sttKeyterms(name, extra = []) {
+function sttKeyterms(name, extra = [], { nameHint = false } = {}) {
   const n = String(name || '').trim();
   const cap = n ? n[0].toUpperCase() + n.slice(1) : '';
-  return [...(cap ? [cap, `Hey ${cap}`, `Okay ${cap}`] : []), ...COMMAND_TERMS, ...extra];
+  // The name is NOT hinted by default: hinting "Fig" made speech-to-text hear "Fig" in ordinary talk
+  // ("big", "fit", "fixed"), and Fig answered when nobody spoke to it. STT_NAME_HINT=true brings it back.
+  return [...(nameHint && cap ? [cap, `Hey ${cap}`, `Okay ${cap}`] : []), ...COMMAND_TERMS, ...extra];
 }
 
 /**
- * "Hey, fake skip" -> "skip". When the name wasn't heard but a sound-alike word starts the sentence
- * (optionally after a greeting), returns the words after it, so the caller can accept them only if
+ * "Hey, fake skip" -> "skip". When the name wasn't heard but a sound-alike word comes right after a
+ * greeting at the start (hey/yo/ok...), returns the words after it, so the caller can accept them only if
  * they are a simple command. Anything else returns null.
  */
 function nearMissRest(transcript, name) {
@@ -119,7 +165,9 @@ function nearMissRest(transcript, name) {
   if (w.named || !w.nearMiss) return null;
   const words = norm(transcript).split(' ');
   const before = words.slice(0, w.nearMiss.index);
-  if (!before.every((x) => GREETING.test(x))) return null;
+  // Only right after a greeting ("hey fake skip"). Without one, "fuck, stop" or "fix skip later"
+  // would act on ordinary talk.
+  if (!before.length || !before.every((x) => GREETING.test(x))) return null;
   return { word: w.nearMiss.word, rest: words.slice(w.nearMiss.index + 1).join(' ') };
 }
 

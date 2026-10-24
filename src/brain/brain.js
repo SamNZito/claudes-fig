@@ -88,7 +88,7 @@ class Brain {
     let text;
     try {
       const t0 = Date.now();
-      text = await grok.stt(wav, { keyterms: sttKeyterms(st.wakeName, config.sttKeyterms) });
+      text = await grok.stt(wav, { keyterms: sttKeyterms(st.wakeName, config.sttKeyterms, { nameHint: config.sttNameHint }) });
       log.info(`STT ${Math.round(durationMs)}ms of speech from ${member.displayName} -> "${text}" in ${Date.now() - t0}ms`);
     } catch (e) {
       log.warn('STT failed:', e.message);
@@ -136,7 +136,8 @@ class Brain {
         log.info(`near-miss "${near.word}" taken as "${st.wakeName}" for simple command "${nearCmd}": "${text}"`);
         return this.runFast(member, nearCmd, near.rest, text, { source });
       }
-      log.info(`not for Fig (mode=${mode}, wake name "${st.wakeName}" not said): "${text}"`);
+      const wk = detectWake(text, st.wakeName);
+      log.info(`not for Fig (mode=${mode}, wake name "${st.wakeName}" ${wk.mentioned ? 'mentioned but not spoken to' : 'not said'}): "${text}"`);
       return;
     }
     log.info(`for Fig: ${member.displayName} mode=${mode} named=${named} -> "${named ? stripped : text}"`);
