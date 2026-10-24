@@ -166,6 +166,21 @@ It uses soundcloud.com's public web client_id, read the way yt-dlp does it and c
 
 **Then (task 8): another version.** When the original is preview-only or locked, `src/music/alternatives.js` searches for the song's name alone. It skips copies SoundCloud says are locked and checks up to 3 for a full-length one (at least 60 s). Fig offers that one in chat with a link, and it plays on "Fig, play that" / `/play that` within 10 minutes. Test: `test/alternatives.test.js`.
 
+## 13. "memory access out of bounds": voice and listening died together (Oct 24)
+
+**What happened.** Three people spoke within two seconds. Then the listener logged `could not start decoder: memory access out of bounds`, and Fig's own voice failed with `opus encode failed: memory access out of bounds` on every frame.
+
+**Cause: a bug in opusscript 0.1.x.** It allocates its PCM buffers by byte address, then views them through `HEAPU16` at that same number, which is an element index. So the views start at twice the allocated address (measured: allocated at 247560, view at 495120). Every encode and decode wrote about 23 KB into memory that belongs to something else. With one decoder that lands somewhere harmless. With several people talking at once, one decoder overwrote another decoder's or the encoder's state, and the whole WebAssembly instance broke. A test that reproduces it (6 decoders coming and going while Fig encodes) breaks real opusscript within about 500 frames.
+
+**Fix.**
+
+- `src/audio/opusWasm.js` uses opusscript's same compiled engine and the same data format, but at the memory it actually allocated. Its output is byte-for-byte identical to opusscript's, and the stress test runs 60,000 frames with up to 6 speakers without a fault.
+- If a fault happens anyway, the instance moves to a brand-new WebAssembly module and carries on. Other instances follow on their next call, so a fault can't take out voice for the rest of the session.
+- "opus encode failed" is logged once, then as a count every 10 s, never once per frame.
+- Test: `test/opus.test.js`.
+
+The native `@discordjs/opus`, when it installs, is used instead and doesn't have this problem. The startup line says which one: `listening (native opus)` or `listening (opus (WebAssembly))`.
+
 ## Already decided (still true)
 
 - One bot, one token. A second copy refuses to start, and a copy on another machine makes this one step aside.
@@ -173,4 +188,4 @@ It uses soundcloud.com's public web client_id, read the way yt-dlp does it and c
 - No YouTube. SoundCloud is the audio source and Spotify is the lookup.
 - Two modes. Normal requires the wake name.
 - One voice disconnect is not "stay out forever".
-- Opus `memory access out of bounds` is caught and not logged on every packet.
+- Opus `memory access out of bounds` is caught and not logged on every packet. Its cause, opusscript's buffer bug, is fixed in `src/audio/opusWasm.js` (section 13). Never go back to `new OpusScript()`.

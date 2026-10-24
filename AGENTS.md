@@ -45,6 +45,7 @@ These are product requirements. Keep them true:
 - Tracks are identified by `key` (source id), never by title.
 - Voice commands and slash commands must both go through `src/actions.js`.
 - Grok stays the model for talk, speech-to-text, text-to-speech and vision (`src/brain/grok.js`).
+- Opus goes through `src/audio/opus.js` (native `@discordjs/opus` if it installed, otherwise `src/audio/opusWasm.js`). Never use `new OpusScript()` directly: its wrapper corrupts memory when several people talk (PROBLEMS.md section 13).
 - Run `npm test` after any change.
 
 ## If something breaks at runtime

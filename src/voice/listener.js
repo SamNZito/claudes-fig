@@ -72,7 +72,7 @@ class Listener extends EventEmitter {
 
   start() {
     this.connection.receiver.speaking.on('start', this.onStart);
-    log.info(`listening (${usingNative() ? 'native opus' : 'opusscript'})`);
+    log.info(`listening (${usingNative() ? 'native opus' : 'opus (WebAssembly)'})`);
   }
 
   stop() {

@@ -204,7 +204,14 @@ class Mixer extends EventEmitter {
     try {
       return this.encoder.encode(pcm);
     } catch (e) {
-      this.emit('warn', `opus encode failed: ${e.message}`);
+      // Once, then a count every 10 s: never a log line per frame (that once filled a 400 MB log).
+      this.encodeFails = (this.encodeFails || 0) + 1;
+      const now = Date.now();
+      if (!this.encodeWarnAt || now - this.encodeWarnAt > 10000) {
+        this.emit('warn', `opus encode failed${this.encodeFails > 1 ? ` (${this.encodeFails} frames since the last report)` : ''}: ${e.message}`);
+        this.encodeWarnAt = now;
+        this.encodeFails = 0;
+      }
       return this.silencePacket;
     }
   }
