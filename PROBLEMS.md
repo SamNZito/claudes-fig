@@ -181,6 +181,19 @@ It uses soundcloud.com's public web client_id, read the way yt-dlp does it and c
 
 The native `@discordjs/opus`, when it installs, is used instead and doesn't have this problem. The startup line says which one: `listening (native opus)` or `listening (opus (WebAssembly))`.
 
+## 14. "Queueing trailer music..." but nothing was queued (Oct 24)
+
+**Cause.** For a vague request ("play something that feels like a movie"), Grok answered with text only and called no tool (`chat result: text="Queueing trailer music..."`, no `tools=`). Saying it doesn't do it, so nothing was queued.
+
+**Fix.**
+
+- **Second ask.** If a reply claims an action but no tool was called, Fig asks Grok once more with `tool_choice: required` and tells it nothing happened. A claim means "queueing", "lining up", "putting on", "adding some", or "I'll / let me play...". Status answers like "Ameno is playing" or "the queue is empty" don't count.
+- **Result of the second ask.** If Grok now picks songs, they're queued. If it answers `stay_quiet`, the first reply was just an answer and stands. If it still calls nothing, Fig says "Sorry, I didn't actually queue anything" instead of pretending.
+- **Prompt.** For a mood, Grok is now told to pick real songs ("Artist - Title", 1-3) or use the DJ for that mood.
+- **Test.** `test/claims.test.js`.
+
+**Log to look for:** `Grok said "..." but called no tool; asking again with a tool required`, then `retry: Grok now used play_music`.
+
 ## Already decided (still true)
 
 - One bot, one token. A second copy refuses to start, and a copy on another machine makes this one step aside.

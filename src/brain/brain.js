@@ -214,6 +214,8 @@ class Brain {
       'What you say is spoken aloud with text-to-speech and also posted in chat, so: 1-2 short sentences (under 35 words) unless asked for detail. No markdown, lists, emojis or URLs.',
       `You are replying to ${member.displayName}. Talk to them only.`,
       'Use tools to actually do things. Never claim a song is playing: the system announces songs when their audio really starts. After play_music, say at most a few words or nothing.',
+      "Never say you are queueing, adding or putting on music unless you call play_music (or dj) in this same reply: saying it doesn't do it.",
+      'For a mood or vibe ("something that feels like a movie"), pick real songs yourself and call play_music with "Artist - Title" for each (1-3 songs), or use dj with that mood for a continuous mix.',
       'play_music adds the song to the queue and leaves the current song playing. Do not skip, stop, or replace the current song just because someone asked for a different one. Only skip_song interrupts what is playing, and only when they asked to skip.',
       "If you can't tell what song or person they mean, ask one short question.",
       'Your personality changes how you talk, never whether you do the job. You may use speech tags like [laugh], [sigh], [pause], <whisper>...</whisper> sparingly.',
@@ -257,6 +259,42 @@ class Brain {
       log.warn('Grok chat failed:', e.message);
       if (!chime) await this.deliver(member, text, "Sorry, my brain glitched. Say that again?", { source, reply });
       return;
+    }
+
+    // Grok sometimes describes an action instead of doing it ("Queueing trailer music..." with no tool
+    // call), so nothing happens. Catch that and ask once more, this time requiring a tool call.
+    if (!chime && !result.toolCalls.length && claimsAction(result.content)) {
+      log.warn(`Grok said ${JSON.stringify(result.content)} but called no tool; asking again with a tool required`);
+      try {
+        const retry = await grok.chat({
+          messages: [
+            ...messages,
+            { role: 'assistant', content: result.content },
+            {
+              role: 'system',
+              content:
+                'You said that, but you called no tool, so nothing happened. If they want music, call play_music now with a specific "Artist - Title" you choose ' +
+                '(for a mood or vibe, pick fitting real songs), or dj with the mood. If your message was only an answer and no action was meant, call stay_quiet.',
+            },
+          ],
+          tools: TOOLS,
+          toolChoice: 'required',
+          maxTokens: 300,
+        });
+        const onlyQuiet = retry.toolCalls.length && retry.toolCalls.every((c) => c.name === 'stay_quiet');
+        if (onlyQuiet) {
+          log.info('retry: it was only an answer; keeping it');
+        } else if (retry.toolCalls.length) {
+          log.info(`retry: Grok now used ${retry.toolCalls.map((c) => c.name).join(', ')}`);
+          result = { ...retry, content: retry.content || result.content };
+        } else {
+          log.warn('retry: still no tool; telling them nothing was queued');
+          result = { content: "Sorry, I didn't actually queue anything. Tell me a song or a mood again?", toolCalls: [] };
+        }
+      } catch (e) {
+        log.warn(`retry failed: ${e.message}`);
+        result = { content: "Sorry, I didn't actually queue anything. Tell me a song or a mood again?", toolCalls: [] };
+      }
     }
 
     const ctx = s.ctx(member, source);
@@ -342,6 +380,12 @@ class Brain {
   }
 }
 
+/** Does a reply claim it is putting music on (which needs a tool call to be true)? Status answers like "Ameno is playing" don't count. */
+const CLAIM = /\b(queu(?:ed|ing|eing)|queue (?:it|that|up|some|those|these|a |the |you)|cue(?:d|ing)? (?:up|it|that|some)|lin(?:ed|ing) (?:it |that |some(?:thing)? |up )?up|putting on|throwing on|adding (?:it|that|some|a |the )|spinning up|firing up|(?:i'?ll|let me|i'?m going to|i'?m gonna|gonna) (?:play|put on|queue|throw on|spin|add))\b/i;
+function claimsAction(text) {
+  return CLAIM.test(String(text || ''));
+}
+
 function fastCommand(t) {
   const clean = String(t || '')
     .toLowerCase()
@@ -352,4 +396,4 @@ function fastCommand(t) {
   return null;
 }
 
-module.exports = { Brain, fastCommand, JUNK };
+module.exports = { Brain, fastCommand, JUNK, claimsAction };

@@ -62,12 +62,12 @@ async function call(path, { method = 'POST', json, form, timeoutMs = 45000, raw 
  * Chat completion with optional tools.
  * @returns {Promise<{content:string, toolCalls:Array<{id:string,name:string,args:object}>}>}
  */
-async function chat({ messages, tools, model = config.grokModel, maxTokens = 600, temperature = 0.8, reasoning = config.grokReasoning, jsonMode = false }) {
+async function chat({ messages, tools, model = config.grokModel, maxTokens = 600, temperature = 0.8, reasoning = config.grokReasoning, jsonMode = false, toolChoice = 'auto' }) {
   // Reasoning tokens count against the limit on reasoning models, so leave headroom for them.
   const body = { model, messages, max_tokens: maxTokens + REASONING_HEADROOM, temperature };
   if (tools && tools.length) {
     body.tools = tools;
-    body.tool_choice = 'auto';
+    body.tool_choice = toolChoice; // 'auto', or 'required' when Fig insists on an action
   }
   if (jsonMode) body.response_format = { type: 'json_object' };
   if (reasoningSupported && reasoning && reasoning !== 'none') body.reasoning_effort = reasoning;
@@ -80,7 +80,10 @@ async function chat({ messages, tools, model = config.grokModel, maxTokens = 600
     } catch (e) {
       if (e.status !== 400 || attempt >= 3) throw e;
       const msgText = String(e.body || '');
-      if (body.reasoning_effort && /reasoning/i.test(msgText)) {
+      if (body.tool_choice && body.tool_choice !== 'auto' && /tool_choice/i.test(msgText)) {
+        log.warn(`model rejected tool_choice=${JSON.stringify(body.tool_choice)}; using auto`);
+        body.tool_choice = 'auto';
+      } else if (body.reasoning_effort && /reasoning/i.test(msgText)) {
         log.warn('model rejected reasoning_effort; continuing without it');
         reasoningSupported = false;
         delete body.reasoning_effort;
